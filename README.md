@@ -255,6 +255,38 @@ Get step-by-step login instructions.
 curl http://localhost:8000/auth/login-instructions
 ```
 
+#### GET `/auth/diagnostics`
+Run diagnostic checks for authentication issues (v2.1+).
+
+Returns detailed information about:
+- HOME environment variable
+- Claude CLI path and installation
+- Config directory location, existence, and permissions
+- Auth status command output
+- Current process user and UID
+
+```bash
+curl http://localhost:8000/auth/diagnostics
+```
+
+**Example Response:**
+```json
+{
+  "home_env": "/home/appuser",
+  "claude_path": "/usr/local/bin/claude",
+  "config_dir": "/home/appuser/.config/claude",
+  "config_dir_exists": true,
+  "config_files": ["auth.json", "config.json"],
+  "config_dir_permissions": "755",
+  "config_dir_owner_uid": 1000,
+  "auth_status_returncode": 0,
+  "auth_status_stdout": "Authenticated",
+  "auth_status_stderr": "",
+  "process_user": "appuser",
+  "process_uid": 1000
+}
+```
+
 #### POST `/auth/logout`
 Logout from Claude Code.
 
@@ -749,6 +781,66 @@ Use the REST API to integrate with:
 - Chat platforms (Discord, Slack bots)
 - CI/CD pipelines
 - Custom applications
+
+## Troubleshooting
+
+### Authentication Issues
+
+If the health endpoint shows `"authenticated": false` despite successful login, use the diagnostics endpoint:
+
+```bash
+curl http://localhost:8000/auth/diagnostics
+```
+
+This returns detailed information about:
+- HOME environment variable
+- Claude CLI path and availability
+- Config directory location and permissions
+- Authentication status output
+- Current process user and UID
+
+**Common Issues:**
+
+1. **HOME not set correctly**
+   - Check that `HOME=/home/appuser` in container
+   - Verify with: `docker exec claude-sdk-agent env | grep HOME`
+
+2. **Config directory permissions**
+   - Ensure `/home/appuser/.config/claude` is owned by appuser (UID 1000)
+   - Fix with: `docker exec claude-sdk-agent chown -R appuser:appuser /home/appuser/.config`
+
+3. **Volume mount issues**
+   - Verify `claude-auth` volume exists: `docker volume ls`
+   - Check volume mount: `docker inspect claude-sdk-agent`
+
+4. **Claude CLI not in PATH**
+   - Verify installation: `docker exec claude-sdk-agent which claude`
+   - Should return: `/usr/local/bin/claude`
+
+**Debugging Steps:**
+
+1. Check container logs:
+```bash
+docker logs claude-sdk-agent
+```
+
+2. Verify authentication interactively:
+```bash
+docker exec -it claude-sdk-agent /bin/bash
+claude auth status
+```
+
+3. Re-login if needed:
+```bash
+docker exec -it claude-sdk-agent claude login
+```
+
+4. Check diagnostics endpoint output for specific error messages
+
+5. Restart container after fixing permissions:
+```bash
+docker-compose restart
+```
 
 ## Contributing
 
