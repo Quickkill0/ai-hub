@@ -41,12 +41,25 @@ class ClaudeAuthHelper:
             bool: True if authenticated, False otherwise
         """
         try:
+            # Pass environment variables explicitly to ensure HOME is set
+            env = os.environ.copy()
+            env['HOME'] = os.environ.get('HOME', '/home/appuser')
+
             result = subprocess.run(
                 ['claude', 'auth', 'status'],
                 capture_output=True,
                 text=True,
-                timeout=10
+                timeout=10,
+                env=env
             )
+
+            # Log detailed information for debugging
+            logger.info(f"Auth check return code: {result.returncode}")
+            logger.info(f"Auth check stdout: {result.stdout}")
+            logger.info(f"Auth check stderr: {result.stderr}")
+            logger.info(f"HOME env var: {env['HOME']}")
+            logger.info(f"Config dir: {self.config_dir}")
+
             return result.returncode == 0
         except Exception as e:
             logger.error(f"Error checking auth status: {e}")

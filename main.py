@@ -12,6 +12,7 @@ import json
 import re
 from typing import Optional, List, Dict, Any
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, status, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
@@ -349,7 +350,7 @@ async def root():
     return {
         "status": "healthy",
         "service": os.getenv("SERVICE_NAME", "claude-code-sdk"),
-        "version": "2.0.0",
+        "version": "2.1.0",
         "authenticated": is_auth
     }
 
@@ -368,7 +369,7 @@ async def health_check():
     return {
         "status": "healthy",
         "service": os.getenv("SERVICE_NAME", "claude-code-sdk"),
-        "version": "2.0.0",
+        "version": "2.1.0",
         "authenticated": is_auth
     }
 
@@ -413,6 +414,74 @@ async def login():
 
     result = await auth_helper.initiate_login()
     return result
+
+
+@app.get("/auth/diagnostics")
+async def auth_diagnostics():
+    """Run diagnostic checks for authentication issues"""
+    diagnostics = {}
+
+    # Check HOME environment variable
+    diagnostics["home_env"] = os.environ.get("HOME", "NOT SET")
+
+    # Check if claude command exists
+    try:
+        result = subprocess.run(
+            ['which', 'claude'],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        diagnostics["claude_path"] = result.stdout.strip() if result.returncode == 0 else "NOT FOUND"
+    except Exception as e:
+        diagnostics["claude_path"] = f"ERROR: {str(e)}"
+
+    # Check config directory
+    config_dir = Path(os.environ.get('HOME', '/home/appuser')) / '.config' / 'claude'
+    diagnostics["config_dir"] = str(config_dir)
+    diagnostics["config_dir_exists"] = config_dir.exists()
+
+    if config_dir.exists():
+        try:
+            # List files in config directory
+            diagnostics["config_files"] = [f.name for f in config_dir.iterdir()]
+
+            # Check permissions
+            import stat
+            st = config_dir.stat()
+            diagnostics["config_dir_permissions"] = oct(st.st_mode)[-3:]
+            diagnostics["config_dir_owner_uid"] = st.st_uid
+        except Exception as e:
+            diagnostics["config_dir_error"] = str(e)
+
+    # Run claude auth status with full output
+    try:
+        env = os.environ.copy()
+        env['HOME'] = os.environ.get('HOME', '/home/appuser')
+
+        result = subprocess.run(
+            ['claude', 'auth', 'status'],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            env=env
+        )
+
+        diagnostics["auth_status_returncode"] = result.returncode
+        diagnostics["auth_status_stdout"] = result.stdout
+        diagnostics["auth_status_stderr"] = result.stderr
+    except Exception as e:
+        diagnostics["auth_status_error"] = str(e)
+
+    # Check current process user
+    try:
+        import pwd
+        diagnostics["process_user"] = pwd.getpwuid(os.getuid()).pw_name
+        diagnostics["process_uid"] = os.getuid()
+    except Exception as e:
+        diagnostics["process_user_error"] = str(e)
+
+    return diagnostics
 
 
 @app.post("/auth/logout")
