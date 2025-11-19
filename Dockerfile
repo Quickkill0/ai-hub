@@ -46,7 +46,12 @@ COPY auth_helper.py .
 COPY .env.example .
 
 # Create a non-root user for security
-RUN useradd -m -u 1000 appuser && \
+# PUID and PGID can be overridden at build time for compatibility with different systems
+ARG PUID=1000
+ARG PGID=1000
+
+RUN groupadd -g ${PGID} appuser && \
+    useradd -m -u ${PUID} -g ${PGID} appuser && \
     mkdir -p /home/appuser/.config/claude && \
     chown -R appuser:appuser /app /home/appuser
 

@@ -61,14 +61,21 @@ cd /mnt/user/appdata/claude-sdk
 # Download docker-compose.yml
 curl -O https://raw.githubusercontent.com/<your-username>/Proxy-Python-SDK/main/docker-compose.yml
 
-# Optional: Download and customize .env
+# Download and customize .env for Unraid
 curl -O https://raw.githubusercontent.com/<your-username>/Proxy-Python-SDK/main/.env.example
 mv .env.example .env
+
+# IMPORTANT FOR UNRAID: Edit .env and set:
+# PUID=99
+# PGID=100
+nano .env
 
 # Pull and start (will use pre-built image from ghcr.io)
 docker-compose pull
 docker-compose up -d
 ```
+
+**Note for Unraid Users**: You **must** set `PUID=99` and `PGID=100` in your `.env` file for proper file permissions. This ensures the container can write authentication tokens to the volume.
 
 ### Option B: Build from Source
 
@@ -801,21 +808,36 @@ This returns detailed information about:
 
 **Common Issues:**
 
-1. **HOME not set correctly**
+1. **PUID/PGID Mismatch (Unraid)** ⚠️ **MOST COMMON ISSUE**
+   - **Symptom**: Diagnostics show `config_dir_owner_uid: 99` but `process_uid: 1000`, empty `config_files: []`, auth timeout
+   - **Cause**: Unraid uses UID 99/GID 100 by default, but container runs as UID 1000
+   - **Fix**: Stop container, set `PUID=99` and `PGID=100` in `.env` file, then restart:
+     ```bash
+     docker-compose down
+     # Edit .env and set PUID=99 and PGID=100
+     nano /mnt/user/appdata/claude-sdk/.env
+     docker-compose up -d
+     # Re-login after restart
+     docker exec -it claude-sdk-agent claude login
+     ```
+
+2. **HOME not set correctly**
    - Check that `HOME=/home/appuser` in container
    - Verify with: `docker exec claude-sdk-agent env | grep HOME`
 
-2. **Config directory permissions**
-   - Ensure `/home/appuser/.config/claude` is owned by appuser (UID 1000)
-   - Fix with: `docker exec claude-sdk-agent chown -R appuser:appuser /home/appuser/.config`
+3. **Config directory permissions**
+   - Ensure `/home/appuser/.config/claude` is owned by the same UID as the process
+   - Check with diagnostics endpoint: `config_dir_owner_uid` should match `process_uid`
+   - If mismatched, see issue #1 above
 
-3. **Volume mount issues**
+4. **Volume mount issues**
    - Verify `claude-auth` volume exists: `docker volume ls`
    - Check volume mount: `docker inspect claude-sdk-agent`
+   - If using Unraid and you changed PUID/PGID, you may need to delete and recreate the volume
 
-4. **Claude CLI not in PATH**
+5. **Claude CLI not in PATH**
    - Verify installation: `docker exec claude-sdk-agent which claude`
-   - Should return: `/usr/local/bin/claude`
+   - Should return: `/usr/local/bin/claude` or `/usr/bin/claude`
 
 **Debugging Steps:**
 
