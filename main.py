@@ -1,18 +1,24 @@
 """
-Claude Python SDK Proxy Service
-A FastAPI-based service that provides REST API access to Claude AI
+Claude Code Python SDK Proxy Service
+A FastAPI-based service that provides REST API access to Claude Code CLI
+Uses Claude OAuth authentication instead of API keys
 """
 
 import os
 import logging
+import asyncio
+import subprocess
+import json
 from typing import Optional, List, Dict, Any
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, HTTPException, status, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from anthropic import Anthropic
 from dotenv import load_dotenv
+
+from auth_helper import ClaudeAuthHelper
 
 # Load environment variables
 load_dotenv()
@@ -32,69 +38,79 @@ class Message(BaseModel):
 
 
 class ChatRequest(BaseModel):
-    messages: List[Message] = Field(..., description="List of messages in the conversation")
+    prompt: str = Field(..., description="The prompt/question to send to Claude")
+    context: Optional[str] = Field(
+        default=None,
+        description="Optional context or system message"
+    )
     model: Optional[str] = Field(
         default=None,
-        description="Claude model to use (defaults to env DEFAULT_MODEL)"
+        description="Claude model to use (optional)"
     )
-    max_tokens: Optional[int] = Field(
+
+
+class ExecuteCommandRequest(BaseModel):
+    command: str = Field(..., description="Claude Code command to execute")
+    args: Optional[List[str]] = Field(
         default=None,
-        description="Maximum tokens in response (defaults to env MAX_TOKENS)"
+        description="Additional arguments for the command"
     )
-    temperature: Optional[float] = Field(
-        default=None,
-        description="Temperature for response generation (defaults to env TEMPERATURE)"
-    )
-    system: Optional[str] = Field(
-        default=None,
-        description="System prompt to guide Claude's behavior"
+    timeout: Optional[int] = Field(
+        default=300,
+        description="Command timeout in seconds"
     )
 
 
 class ChatResponse(BaseModel):
-    id: str
-    role: str
-    content: str
-    model: str
-    stop_reason: Optional[str]
-    usage: Dict[str, int]
+    response: str
+    status: str
+    metadata: Optional[Dict[str, Any]] = None
 
 
 class HealthResponse(BaseModel):
     status: str
     service: str
     version: str
+    authenticated: bool
 
 
-# Global client instance
-claude_client: Optional[Anthropic] = None
+class LoginResponse(BaseModel):
+    status: str
+    message: str
+    instructions: Optional[List[str]] = None
+
+
+# Global auth helper
+auth_helper: Optional[ClaudeAuthHelper] = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan handler"""
-    global claude_client
+    global auth_helper
 
     # Startup
-    api_key = os.getenv("ANTHROPIC_API_KEY")
-    if not api_key:
-        logger.error("ANTHROPIC_API_KEY not set in environment variables")
-        raise RuntimeError("ANTHROPIC_API_KEY is required")
+    logger.info("Initializing Claude Code SDK service...")
+    auth_helper = ClaudeAuthHelper()
 
-    claude_client = Anthropic(api_key=api_key)
-    logger.info("Claude SDK initialized successfully")
+    # Check authentication status
+    if auth_helper.is_authenticated():
+        logger.info("✓ Authenticated with Claude Code")
+    else:
+        logger.warning("⚠ Not authenticated with Claude Code. Please login.")
+        logger.warning("Run: docker exec -it claude-sdk-agent claude login")
 
     yield
 
     # Shutdown
-    logger.info("Shutting down Claude SDK service")
+    logger.info("Shutting down Claude Code SDK service")
 
 
 # Initialize FastAPI app
 app = FastAPI(
-    title="Claude Python SDK Proxy",
-    description="REST API wrapper for Anthropic's Claude AI",
-    version="1.0.0",
+    title="Claude Code Python SDK Proxy",
+    description="REST API wrapper for Claude Code CLI with OAuth authentication",
+    version="2.0.0",
     lifespan=lifespan
 )
 
@@ -108,124 +124,268 @@ app.add_middleware(
 )
 
 
+async def execute_claude_command(
+    command: List[str],
+    timeout: int = 300,
+    input_text: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Execute a Claude Code command and return the result
+
+    Args:
+        command: Command and arguments as list
+        timeout: Timeout in seconds
+        input_text: Optional input to send to the command
+
+    Returns:
+        Dict with command output and status
+    """
+    try:
+        process = await asyncio.create_subprocess_exec(
+            *command,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            stdin=asyncio.subprocess.PIPE if input_text else None
+        )
+
+        try:
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(input=input_text.encode() if input_text else None),
+                timeout=timeout
+            )
+
+            return {
+                "status": "success" if process.returncode == 0 else "error",
+                "returncode": process.returncode,
+                "stdout": stdout.decode('utf-8', errors='replace'),
+                "stderr": stderr.decode('utf-8', errors='replace')
+            }
+
+        except asyncio.TimeoutError:
+            process.kill()
+            await process.wait()
+            return {
+                "status": "timeout",
+                "returncode": -1,
+                "stdout": "",
+                "stderr": f"Command timed out after {timeout} seconds"
+            }
+
+    except Exception as e:
+        logger.error(f"Error executing command: {e}")
+        return {
+            "status": "error",
+            "returncode": -1,
+            "stdout": "",
+            "stderr": str(e)
+        }
+
+
 @app.get("/", response_model=HealthResponse)
 async def root():
-    """Root endpoint - health check"""
+    """Root endpoint - health check with auth status"""
+    is_auth = auth_helper.is_authenticated() if auth_helper else False
+
     return {
         "status": "healthy",
-        "service": os.getenv("SERVICE_NAME", "claude-proxy-sdk"),
-        "version": "1.0.0"
+        "service": os.getenv("SERVICE_NAME", "claude-code-sdk"),
+        "version": "2.0.0",
+        "authenticated": is_auth
     }
 
 
 @app.get("/health", response_model=HealthResponse)
 async def health_check():
     """Health check endpoint"""
-    if claude_client is None:
+    if auth_helper is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Claude client not initialized"
+            detail="Auth helper not initialized"
         )
+
+    is_auth = auth_helper.is_authenticated()
 
     return {
         "status": "healthy",
-        "service": os.getenv("SERVICE_NAME", "claude-proxy-sdk"),
-        "version": "1.0.0"
+        "service": os.getenv("SERVICE_NAME", "claude-code-sdk"),
+        "version": "2.0.0",
+        "authenticated": is_auth
     }
+
+
+@app.get("/auth/status")
+async def auth_status():
+    """Get authentication status"""
+    if auth_helper is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Auth helper not initialized"
+        )
+
+    return auth_helper.get_auth_info()
+
+
+@app.get("/auth/login-instructions")
+async def get_login_instructions():
+    """Get instructions for logging in"""
+    if auth_helper is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Auth helper not initialized"
+        )
+
+    return await auth_helper.get_login_instructions()
+
+
+@app.post("/auth/login")
+async def login():
+    """
+    Initiate Claude Code login process
+
+    Note: This is an interactive process. For full functionality,
+    you need to exec into the container and run 'claude login' manually.
+    """
+    if auth_helper is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Auth helper not initialized"
+        )
+
+    result = await auth_helper.initiate_login()
+    return result
+
+
+@app.post("/auth/logout")
+async def logout():
+    """Logout from Claude Code"""
+    if auth_helper is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Auth helper not initialized"
+        )
+
+    result = await auth_helper.logout()
+    return result
 
 
 @app.post("/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest):
     """
-    Send a message to Claude and get a response
+    Send a prompt to Claude Code and get a response
 
-    This endpoint accepts a conversation history and returns Claude's response.
+    This uses the Claude Code CLI to interact with Claude via OAuth
     """
-    if claude_client is None:
+    if auth_helper is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Claude client not initialized"
+            detail="Auth helper not initialized"
+        )
+
+    if not auth_helper.is_authenticated():
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated with Claude Code. Please login first using /auth/login-instructions"
         )
 
     try:
-        # Get configuration from request or environment
-        model = request.model or os.getenv("DEFAULT_MODEL", "claude-sonnet-4-5-20250929")
-        max_tokens = request.max_tokens or int(os.getenv("MAX_TOKENS", "4096"))
-        temperature = request.temperature or float(os.getenv("TEMPERATURE", "1.0"))
+        # Build the Claude Code command
+        command = ['claude', 'chat']
 
-        # Convert messages to Claude format
-        messages = [{"role": msg.role, "content": msg.content} for msg in request.messages]
+        if request.model:
+            command.extend(['--model', request.model])
 
-        # Prepare API call parameters
-        api_params = {
-            "model": model,
-            "max_tokens": max_tokens,
-            "temperature": temperature,
-            "messages": messages
-        }
+        # Execute the command with the prompt as input
+        result = await execute_claude_command(
+            command=command,
+            timeout=int(os.getenv("COMMAND_TIMEOUT", "300")),
+            input_text=request.prompt
+        )
 
-        # Add system prompt if provided
-        if request.system:
-            api_params["system"] = request.system
-
-        # Call Claude API
-        logger.info(f"Sending request to Claude with model: {model}")
-        response = claude_client.messages.create(**api_params)
-
-        # Extract text content from response
-        content_text = ""
-        for block in response.content:
-            if hasattr(block, 'text'):
-                content_text += block.text
-
-        # Format response
-        return {
-            "id": response.id,
-            "role": response.role,
-            "content": content_text,
-            "model": response.model,
-            "stop_reason": response.stop_reason,
-            "usage": {
-                "input_tokens": response.usage.input_tokens,
-                "output_tokens": response.usage.output_tokens
+        if result['status'] == 'success':
+            return {
+                "response": result['stdout'],
+                "status": "success",
+                "metadata": {
+                    "model": request.model or "default",
+                    "returncode": result['returncode']
+                }
             }
-        }
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Claude Code error: {result['stderr']}"
+            )
 
     except Exception as e:
-        logger.error(f"Error calling Claude API: {str(e)}")
+        logger.error(f"Error calling Claude Code: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error communicating with Claude: {str(e)}"
+            detail=f"Error communicating with Claude Code: {str(e)}"
         )
 
 
-@app.get("/models")
-async def list_models():
-    """List available Claude models"""
-    return {
-        "models": [
-            {
-                "id": "claude-sonnet-4-5-20250929",
-                "name": "Claude Sonnet 4.5",
-                "description": "Most advanced Claude model"
-            },
-            {
-                "id": "claude-3-7-sonnet-20250219",
-                "name": "Claude 3.7 Sonnet",
-                "description": "Powerful and balanced model"
-            },
-            {
-                "id": "claude-3-5-haiku-20241022",
-                "name": "Claude 3.5 Haiku",
-                "description": "Fast and efficient model"
-            },
-            {
-                "id": "claude-3-opus-20240229",
-                "name": "Claude 3 Opus",
-                "description": "Previous generation top-tier model"
-            }
-        ]
-    }
+@app.post("/execute")
+async def execute_command(request: ExecuteCommandRequest):
+    """
+    Execute a custom Claude Code command
+
+    This allows you to run any Claude Code CLI command
+    """
+    if auth_helper is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Auth helper not initialized"
+        )
+
+    if not auth_helper.is_authenticated():
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated with Claude Code. Please login first."
+        )
+
+    try:
+        # Build command
+        command = ['claude', request.command]
+        if request.args:
+            command.extend(request.args)
+
+        # Execute
+        result = await execute_claude_command(
+            command=command,
+            timeout=request.timeout or 300
+        )
+
+        return {
+            "command": ' '.join(command),
+            "status": result['status'],
+            "returncode": result['returncode'],
+            "output": result['stdout'],
+            "error": result['stderr']
+        }
+
+    except Exception as e:
+        logger.error(f"Error executing command: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error executing command: {str(e)}"
+        )
+
+
+@app.get("/version")
+async def get_claude_version():
+    """Get Claude Code version"""
+    result = await execute_claude_command(['claude', '--version'], timeout=10)
+
+    if result['status'] == 'success':
+        return {
+            "version": result['stdout'].strip(),
+            "status": "success"
+        }
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get Claude Code version"
+        )
 
 
 if __name__ == "__main__":

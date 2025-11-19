@@ -5,24 +5,29 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: claude-python-sdk:latest
+    image: claude-code-sdk:latest
     container_name: claude-sdk-agent
     restart: unless-stopped
 
     # Environment variables (override with .env file)
     environment:
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - HOST=0.0.0.0
       - PORT=8000
-      - DEFAULT_MODEL=${DEFAULT_MODEL:-claude-sonnet-4-5-20250929}
-      - MAX_TOKENS=${MAX_TOKENS:-4096}
-      - TEMPERATURE=${TEMPERATURE:-1.0}
-      - SERVICE_NAME=${SERVICE_NAME:-claude-proxy-sdk}
+      - SERVICE_NAME=${SERVICE_NAME:-claude-code-sdk}
       - LOG_LEVEL=${LOG_LEVEL:-info}
+      - COMMAND_TIMEOUT=${COMMAND_TIMEOUT:-300}
+      - HOME=/home/appuser
 
-    # Load environment from .env file
+    # Load environment from .env file (optional)
     env_file:
       - .env
+
+    # Volume mounts for persistent auth and data
+    volumes:
+      # Persist Claude Code authentication tokens
+      - claude-auth:/home/appuser/.config/claude
+      # Optional: Mount a workspace directory
+      - ${WORKSPACE_DIR:-./workspace}:/workspace
 
     # Port mapping
     ports:
@@ -56,6 +61,15 @@ services:
     # Network
     networks:
       - claude-network
+
+    # Enable TTY for interactive commands (like login)
+    tty: true
+    stdin_open: true
+
+volumes:
+  # Named volume for Claude authentication persistence
+  claude-auth:
+    driver: local
 
 networks:
   claude-network:
