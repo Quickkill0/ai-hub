@@ -1,0 +1,62 @@
+version: '3.8'
+
+services:
+  claude-sdk:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: claude-python-sdk:latest
+    container_name: claude-sdk-agent
+    restart: unless-stopped
+
+    # Environment variables (override with .env file)
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - HOST=0.0.0.0
+      - PORT=8000
+      - DEFAULT_MODEL=${DEFAULT_MODEL:-claude-sonnet-4-5-20250929}
+      - MAX_TOKENS=${MAX_TOKENS:-4096}
+      - TEMPERATURE=${TEMPERATURE:-1.0}
+      - SERVICE_NAME=${SERVICE_NAME:-claude-proxy-sdk}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+
+    # Load environment from .env file
+    env_file:
+      - .env
+
+    # Port mapping
+    ports:
+      - "${PORT:-8000}:8000"
+
+    # Health check
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+    # Resource limits (adjust based on your Unraid server)
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    # Network
+    networks:
+      - claude-network
+
+networks:
+  claude-network:
+    driver: bridge
