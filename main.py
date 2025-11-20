@@ -302,11 +302,16 @@ async def execute_claude_command(
         Dict with command output and status
     """
     try:
+        # Ensure HOME is set for Claude Code to find credentials
+        env = os.environ.copy()
+        env['HOME'] = os.environ.get('HOME', '/home/appuser')
+
         process = await asyncio.create_subprocess_exec(
             *command,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            stdin=asyncio.subprocess.PIPE if input_text else None
+            stdin=asyncio.subprocess.PIPE if input_text else None,
+            env=env
         )
 
         try:
