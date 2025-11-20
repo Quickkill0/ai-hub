@@ -436,8 +436,19 @@ async def auth_diagnostics():
     except Exception as e:
         diagnostics["claude_path"] = f"ERROR: {str(e)}"
 
-    # Check config directory
-    config_dir = Path(os.environ.get('HOME', '/home/appuser')) / '.config' / 'claude'
+    # Check both possible config locations
+    home_dir = Path(os.environ.get('HOME', '/home/appuser'))
+
+    # ~/.claude/ (newer Claude Code versions)
+    claude_dir = home_dir / '.claude'
+    diagnostics["claude_dir"] = str(claude_dir)
+    diagnostics["claude_dir_exists"] = claude_dir.exists()
+    if claude_dir.exists():
+        creds_file = claude_dir / 'credentials.json'
+        diagnostics["claude_credentials_exists"] = creds_file.exists()
+
+    # ~/.config/claude/ (older versions or alternate location)
+    config_dir = home_dir / '.config' / 'claude'
     diagnostics["config_dir"] = str(config_dir)
     diagnostics["config_dir_exists"] = config_dir.exists()
 

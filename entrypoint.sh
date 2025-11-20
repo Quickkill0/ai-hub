@@ -32,9 +32,6 @@ fi
 mkdir -p /home/appuser/.config/claude
 chown -R appuser:appuser /home/appuser/.config
 
-# Export HOME for the appuser
-export HOME=/home/appuser
-
-# Switch to appuser and run the application
+# Switch to appuser and run the application with proper HOME
 echo "Starting application as appuser (${PUID}:${PGID})"
-exec gosu appuser python main.py
+exec gosu appuser env HOME=/home/appuser python main.py
