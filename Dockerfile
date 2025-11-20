@@ -18,6 +18,7 @@ RUN apt-get update && \
     ca-certificates \
     gnupg \
     git \
+    gosu \
     && mkdir -p /etc/apt/keyrings \
     && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg \
     && echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" | tee /etc/apt/sources.list.d/nodesource.list \
@@ -45,21 +46,15 @@ COPY main.py .
 COPY auth_helper.py .
 COPY .env.example .
 
-# Create a non-root user for security
-# PUID and PGID can be overridden at build time for compatibility with different systems
-ARG PUID=1000
-ARG PGID=1000
+# Copy entrypoint script
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
-RUN groupadd -g ${PGID} appuser && \
-    useradd -m -u ${PUID} -g ${PGID} appuser && \
+# Create a non-root user for security (default UID/GID, will be modified at runtime)
+RUN groupadd -g 1000 appuser && \
+    useradd -m -u 1000 -g 1000 appuser && \
     mkdir -p /home/appuser/.config/claude && \
     chown -R appuser:appuser /app /home/appuser
-
-# Switch to non-root user
-USER appuser
-
-# Set home directory for Claude Code config
-ENV HOME=/home/appuser
 
 # Expose port
 EXPOSE 8000
@@ -68,5 +63,5 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
-# Run the application
-CMD ["python", "main.py"]
+# Use entrypoint script to handle runtime UID/GID changes
+ENTRYPOINT ["/entrypoint.sh"]

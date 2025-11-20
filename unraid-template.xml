@@ -1,0 +1,47 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>Claude-Code-SDK</Name>
+  <Repository>ghcr.io/quickkill0/proxy-python-sdk:latest</Repository>
+  <Registry>https://ghcr.io/</Registry>
+  <Network>bridge</Network>
+  <MyIP/>
+  <Shell>bash</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/Quickkill0/Proxy-Python-SDK/issues</Support>
+  <Project>https://github.com/Quickkill0/Proxy-Python-SDK</Project>
+  <Overview>
+    Claude Code SDK - A FastAPI-based service that provides REST API access to Claude AI using OAuth authentication.
+
+    Perfect for integrating Claude AI into your applications:
+    - Web scraping and data extraction
+    - Structured data parsing (JSON output)
+    - Multi-turn conversations
+    - File and HTML analysis
+    - General-purpose AI assistant
+
+    After installation, you must authenticate:
+    1. Open container console in Unraid
+    2. Run: claude login
+    3. Follow OAuth flow in browser
+    4. Authentication persists in appdata
+  </Overview>
+  <Category>Tools:Utilities Network:Web</Category>
+  <WebUI>http://[IP]:[PORT:8000]/</WebUI>
+  <TemplateURL>https://raw.githubusercontent.com/Quickkill0/Proxy-Python-SDK/main/unraid-template.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/Quickkill0/Proxy-Python-SDK/main/.github/claude-icon.png</Icon>
+  <ExtraParams>--tty --interactive</ExtraParams>
+  <PostArgs/>
+  <CPUset/>
+  <DateInstalled/>
+  <DonateText/>
+  <DonateLink/>
+  <Requires/>
+  <Config Name="WebUI Port" Target="8000" Default="8000" Mode="tcp" Description="Web interface and API port" Type="Port" Display="always" Required="true" Mask="false">8000</Config>
+  <Config Name="Appdata" Target="/home/appuser/.config/claude" Default="/mnt/user/appdata/claude-sdk" Mode="rw" Description="Persistent storage for Claude authentication tokens" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/claude-sdk</Config>
+  <Config Name="Workspace (Optional)" Target="/workspace" Default="/mnt/user/appdata/claude-sdk/workspace" Mode="rw" Description="Optional workspace directory for file operations" Type="Path" Display="advanced" Required="false" Mask="false">/mnt/user/appdata/claude-sdk/workspace</Config>
+  <Config Name="PUID" Target="PUID" Default="99" Mode="" Description="User ID (99 for Unraid compatibility)" Type="Variable" Display="advanced" Required="true" Mask="false">99</Config>
+  <Config Name="PGID" Target="PGID" Default="100" Mode="" Description="Group ID (100 for Unraid compatibility)" Type="Variable" Display="advanced" Required="true" Mask="false">100</Config>
+  <Config Name="Log Level" Target="LOG_LEVEL" Default="info" Mode="" Description="Logging level: debug, info, warning, error" Type="Variable" Display="advanced" Required="false" Mask="false">info</Config>
+  <Config Name="Command Timeout" Target="COMMAND_TIMEOUT" Default="300" Mode="" Description="Timeout for Claude commands in seconds" Type="Variable" Display="advanced" Required="false" Mask="false">300</Config>
+  <Config Name="Service Name" Target="SERVICE_NAME" Default="claude-code-sdk" Mode="" Description="Service identifier" Type="Variable" Display="advanced" Required="false" Mask="false">claude-code-sdk</Config>
+</Container>

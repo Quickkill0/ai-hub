@@ -49,9 +49,32 @@ docker pull ghcr.io/<your-username>/proxy-python-sdk:latest
 
 ## Quick Start
 
-### Option A: Use Pre-built Image (Recommended for Unraid)
+### Unraid Installation (Recommended)
 
-The easiest way is to pull the pre-built image from GitHub Container Registry:
+**Method 1: Using Unraid Community Applications**
+
+1. In Unraid, go to **Apps** tab
+2. Search for "Claude Code SDK"
+3. Click **Install**
+4. The template will auto-configure PUID=99 and PGID=100
+5. Click **Apply** to install
+
+**Method 2: Manual Template Installation**
+
+1. In Unraid, go to **Docker** tab
+2. Click **Add Container**
+3. Set **Template Repository** to:
+   ```
+   https://raw.githubusercontent.com/Quickkill0/Proxy-Python-SDK/main/unraid-template.xml
+   ```
+4. Or manually configure:
+   - **Repository**: `ghcr.io/quickkill0/proxy-python-sdk:latest`
+   - **Port**: `8000` → Your desired port
+   - **Path**: `/home/appuser/.config/claude` → `/mnt/user/appdata/claude-sdk`
+   - **Variable PUID**: `99` (Important!)
+   - **Variable PGID**: `100` (Important!)
+
+### Docker Compose Installation (Other Systems)
 
 ```bash
 # Create directory and config
@@ -59,23 +82,13 @@ mkdir -p /mnt/user/appdata/claude-sdk
 cd /mnt/user/appdata/claude-sdk
 
 # Download docker-compose.yml
-curl -O https://raw.githubusercontent.com/<your-username>/Proxy-Python-SDK/main/docker-compose.yml
+curl -O https://raw.githubusercontent.com/Quickkill0/Proxy-Python-SDK/main/docker-compose.yml
 
-# Download and customize .env for Unraid
-curl -O https://raw.githubusercontent.com/<your-username>/Proxy-Python-SDK/main/.env.example
-mv .env.example .env
-
-# IMPORTANT FOR UNRAID: Edit .env and set:
-# PUID=99
-# PGID=100
-nano .env
-
-# Pull and start (will use pre-built image from ghcr.io)
-docker-compose pull
+# Start container
 docker-compose up -d
 ```
 
-**Note for Unraid Users**: You **must** set `PUID=99` and `PGID=100` in your `.env` file for proper file permissions. This ensures the container can write authentication tokens to the volume.
+**Note**: PUID=99 and PGID=100 are default for Unraid. For other systems, you may need PUID=1000 and PGID=1000.
 
 ### Option B: Build from Source
 
@@ -94,23 +107,22 @@ cp .env.example .env
 docker-compose up -d --build
 ```
 
-### Authentication (Required for Both Options)
+### Authentication (Required)
 
-After starting the container (regardless of which method you used), you must login to Claude Code:
+After starting the container, you must authenticate with Claude:
 
+**In Unraid:**
+1. Click on the container icon → **Console**
+2. Run: `claude login`
+3. Follow the OAuth flow in your browser
+4. Type `exit` to close console
+
+**Via Command Line:**
 ```bash
-# Access the container
-docker exec -it claude-sdk-agent /bin/bash
-
-# Inside the container, run:
-claude login
-
-# Follow the OAuth flow in your browser
-# After successful login, exit the container:
-exit
+docker exec -it claude-sdk-agent claude login
 ```
 
-Your authentication will persist in the `claude-auth` volume.
+Your authentication persists in the appdata directory (no need to re-login after restarts).
 
 ### Verify Authentication
 

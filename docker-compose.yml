@@ -11,26 +11,19 @@ services:
     # build:
     #   context: .
     #   dockerfile: Dockerfile
-    #   args:
-    #     PUID: ${PUID:-1000}  # Set to 99 for Unraid
-    #     PGID: ${PGID:-1000}  # Set to 100 for Unraid
 
     container_name: claude-sdk-agent
     restart: unless-stopped
 
-    # Run as specific user (Unraid uses 99:100, Docker Desktop uses 1000:1000)
-    user: "${PUID:-1000}:${PGID:-1000}"
-
-    # Environment variables (override with .env file)
+    # Environment variables (override with .env file or Unraid template)
     environment:
       - HOST=0.0.0.0
       - PORT=8000
       - SERVICE_NAME=${SERVICE_NAME:-claude-code-sdk}
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - COMMAND_TIMEOUT=${COMMAND_TIMEOUT:-300}
-      - HOME=/home/appuser
-      - PUID=${PUID:-1000}
-      - PGID=${PGID:-1000}
+      - PUID=${PUID:-99}
+      - PGID=${PGID:-100}
 
     # Load environment from .env file (optional)
     env_file:
