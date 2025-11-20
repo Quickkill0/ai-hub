@@ -144,13 +144,19 @@ def build_options(
     return ClaudeAgentOptions(
         model=model,
         system_prompt=final_system_prompt,
-        # Read-only tools for security - no file modifications
-        allowed_tools=[
-            "Read",        # Read files
-            "Grep",        # Search content
-            "Glob",        # Find files
-            "WebFetch",    # Fetch web content
-            "WebSearch"    # Search the web
+        # Block all write/modify/execute tools for security
+        disallowed_tools=[
+            "Write",        # Block file creation
+            "Edit",         # Block file modification
+            "Bash",         # Block command execution
+            "Task",         # Block subagent spawning
+            "NotebookEdit", # Block notebook edits
+            "TodoWrite",    # Block todo modifications
+            "BashOutput",   # Block background shell access
+            "KillShell",    # Block shell control
+            "Skill",        # Block skill execution
+            "SlashCommand", # Block slash commands
+            "ExitPlanMode"  # Block plan mode
         ],
         permission_mode="bypassPermissions"  # No interactive prompts for API
     )
