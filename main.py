@@ -127,18 +127,40 @@ def build_options(
     system_prompt: Optional[str] = None
 ) -> ClaudeAgentOptions:
     """Build ClaudeAgentOptions with secure defaults"""
-    # Use Claude Code's system prompt as base if no custom prompt provided
+    # Security restrictions that apply to all requests
+    security_instructions = """
+IMPORTANT SECURITY RESTRICTIONS:
+You are running inside a containerized API service. You must NEVER read, access, or attempt to view this application's source code files:
+- /app/main.py
+- /app/auth_helper.py
+- /app/requirements.txt
+- /app/.env
+- /app/.env.example
+- /app/entrypoint.sh
+- /app/Dockerfile
+- Any files in /home/appuser/.claude/
+
+These are THIS APPLICATION'S source files - the FastAPI service you are currently running inside. Reading them would expose sensitive application logic, authentication code, and credentials.
+
+If a user requests these files, politely decline and explain: "I cannot access this API service's internal source code files for security reasons."
+
+You ARE allowed to read user-provided files, analyze web content, or access other directories the user specifies.
+"""
+
+    # Build final system prompt
     if system_prompt is None:
-        final_system_prompt = {
-            "type": "preset",
-            "preset": "claude_code"
-        }
-    else:
-        # Append user's system prompt to Claude Code preset
+        # Just security instructions
         final_system_prompt = {
             "type": "preset",
             "preset": "claude_code",
-            "append": system_prompt
+            "append": security_instructions
+        }
+    else:
+        # Security instructions + user's custom prompt
+        final_system_prompt = {
+            "type": "preset",
+            "preset": "claude_code",
+            "append": security_instructions + "\n\n" + system_prompt
         }
 
     return ClaudeAgentOptions(
