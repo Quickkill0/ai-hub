@@ -7,6 +7,7 @@ from app.db import database
 
 
 # Built-in profile definitions
+# Model names: claude-sonnet-4-20250514, claude-3-5-sonnet-20241022, claude-3-5-haiku-20241022
 BUILTIN_PROFILES: Dict[str, Dict[str, Any]] = {
     "simple-chat": {
         "id": "simple-chat",
@@ -14,7 +15,7 @@ BUILTIN_PROFILES: Dict[str, Dict[str, Any]] = {
         "description": "Text-only responses, no tool access",
         "is_builtin": True,
         "config": {
-            "model": "claude-sonnet-4",
+            "model": "claude-sonnet-4-20250514",
             "allowed_tools": [],
             "permission_mode": "default",
             "max_turns": 10,
@@ -28,7 +29,7 @@ BUILTIN_PROFILES: Dict[str, Dict[str, Any]] = {
         "description": "Read-only code analysis, no modifications",
         "is_builtin": True,
         "config": {
-            "model": "claude-sonnet-4",
+            "model": "claude-sonnet-4-20250514",
             "allowed_tools": ["Read", "Glob", "Grep"],
             "permission_mode": "default",
             "system_prompt": {
@@ -44,7 +45,7 @@ BUILTIN_PROFILES: Dict[str, Dict[str, Any]] = {
         "description": "Can read and write files, auto-approves edits",
         "is_builtin": True,
         "config": {
-            "model": "claude-sonnet-4",
+            "model": "claude-sonnet-4-20250514",
             "allowed_tools": ["Read", "Write", "Edit", "Glob", "Grep"],
             "permission_mode": "acceptEdits",
             "system_prompt": {
@@ -60,7 +61,7 @@ BUILTIN_PROFILES: Dict[str, Dict[str, Any]] = {
         "description": "Complete Claude Code experience with all tools",
         "is_builtin": True,
         "config": {
-            "model": "claude-sonnet-4",
+            "model": "claude-sonnet-4-20250514",
             "allowed_tools": [
                 "Read", "Write", "Edit", "Glob", "Grep", "Bash",
                 "WebFetch", "WebSearch", "NotebookEdit", "TodoWrite",
@@ -81,7 +82,7 @@ BUILTIN_PROFILES: Dict[str, Dict[str, Any]] = {
         "description": "Optimized for structured data extraction (JSON output)",
         "is_builtin": True,
         "config": {
-            "model": "claude-haiku-4",
+            "model": "claude-3-5-haiku-20241022",
             "allowed_tools": ["WebFetch"],
             "permission_mode": "bypassPermissions",
             "max_turns": 3,
@@ -99,7 +100,7 @@ BUILTIN_PROFILES: Dict[str, Dict[str, Any]] = {
         "description": "Web search and content analysis",
         "is_builtin": True,
         "config": {
-            "model": "claude-sonnet-4",
+            "model": "claude-sonnet-4-20250514",
             "allowed_tools": ["Read", "Glob", "Grep", "WebFetch", "WebSearch"],
             "permission_mode": "default",
             "system_prompt": {
