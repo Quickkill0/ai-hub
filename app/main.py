@@ -94,7 +94,40 @@ app.include_router(query.router)
 # Serve static files (Svelte build) if they exist
 static_dir = Path(__file__).parent / "static"
 if static_dir.exists():
-    app.mount("/", StaticFiles(directory=str(static_dir), html=True), name="static")
+    # Mount static assets (js, css, etc.) at /_app
+    app_assets = static_dir / "_app"
+    if app_assets.exists():
+        app.mount("/_app", StaticFiles(directory=str(app_assets)), name="app_assets")
+
+    # Serve other static files
+    app.mount("/static", StaticFiles(directory=str(static_dir)), name="static_files")
+
+    # Serve index.html for SPA routes
+    from fastapi.responses import FileResponse
+
+    @app.get("/")
+    async def serve_spa_root():
+        return FileResponse(static_dir / "index.html")
+
+    @app.get("/login")
+    async def serve_spa_login():
+        return FileResponse(static_dir / "index.html")
+
+    @app.get("/setup")
+    async def serve_spa_setup():
+        return FileResponse(static_dir / "index.html")
+
+    @app.get("/chat")
+    async def serve_spa_chat():
+        return FileResponse(static_dir / "index.html")
+
+    @app.get("/chat/{path:path}")
+    async def serve_spa_chat_path(path: str):
+        return FileResponse(static_dir / "index.html")
+
+    @app.get("/favicon.svg")
+    async def serve_favicon():
+        return FileResponse(static_dir / "favicon.svg")
 
 
 # Legacy endpoints for backward compatibility
