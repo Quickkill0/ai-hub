@@ -137,6 +137,15 @@ function createChatStore() {
 			}
 		},
 
+		async updateProfile(profileId: string, data: { name: string; description?: string; config: Record<string, unknown> }) {
+			try {
+				await api.put(`/profiles/${profileId}`, data);
+				await this.loadProfiles();
+			} catch (e: any) {
+				update(s => ({ ...s, error: e.detail || 'Failed to update profile' }));
+			}
+		},
+
 		async deleteProfile(profileId: string) {
 			try {
 				await api.delete(`/profiles/${profileId}`);

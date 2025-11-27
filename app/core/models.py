@@ -44,14 +44,42 @@ class SystemPromptConfig(BaseModel):
 
 
 class ProfileConfig(BaseModel):
-    """Claude Agent configuration stored in profile"""
+    """Claude Agent configuration stored in profile - maps to ClaudeAgentOptions"""
+    # Core settings
     model: Optional[str] = "claude-sonnet-4"
+    permission_mode: Optional[str] = "default"  # default, acceptEdits, plan, bypassPermissions
+    max_turns: Optional[int] = None
+
+    # Tool configuration
     allowed_tools: Optional[List[str]] = None
     disallowed_tools: Optional[List[str]] = None
-    permission_mode: Optional[str] = "default"
-    max_turns: Optional[int] = None
+
+    # System prompt
     system_prompt: Optional[SystemPromptConfig] = None
-    setting_sources: Optional[List[str]] = None
+
+    # Streaming behavior
+    include_partial_messages: bool = False  # Enable streaming partial messages
+
+    # Session behavior
+    continue_conversation: bool = False  # Continue most recent conversation
+    fork_session: bool = False  # Fork instead of continuing when resuming
+
+    # Working directory and paths
+    cwd: Optional[str] = None  # Override working directory
+    add_dirs: Optional[List[str]] = None  # Additional directories Claude can access
+
+    # Settings loading
+    setting_sources: Optional[List[str]] = None  # user, project, local
+
+    # Environment and arguments
+    env: Optional[Dict[str, str]] = None  # Environment variables
+    extra_args: Optional[Dict[str, Any]] = None  # Additional CLI arguments
+
+    # Buffer settings
+    max_buffer_size: Optional[int] = None  # Maximum bytes when buffering CLI stdout
+
+    # User identification
+    user: Optional[str] = None  # User identifier
 
 
 class ProfileBase(BaseModel):

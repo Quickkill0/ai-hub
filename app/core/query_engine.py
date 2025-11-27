@@ -66,7 +66,7 @@ def build_options_from_profile(
     overrides: Optional[Dict[str, Any]] = None,
     resume_session_id: Optional[str] = None
 ) -> ClaudeAgentOptions:
-    """Convert a profile to ClaudeAgentOptions"""
+    """Convert a profile to ClaudeAgentOptions with all available options"""
     config = profile["config"]
     overrides = overrides or {}
 
@@ -99,21 +99,52 @@ def build_options_from_profile(
         if override_append:
             final_system_prompt += "\n\n" + override_append
 
-    # Build options
+    # Build options with all ClaudeAgentOptions fields
     options = ClaudeAgentOptions(
+        # Core settings
         model=overrides.get("model") or config.get("model"),
-        allowed_tools=config.get("allowed_tools"),
-        disallowed_tools=config.get("disallowed_tools"),
         permission_mode=config.get("permission_mode", "default"),
         max_turns=overrides.get("max_turns") or config.get("max_turns"),
+
+        # Tool configuration
+        allowed_tools=config.get("allowed_tools") or [],
+        disallowed_tools=config.get("disallowed_tools") or [],
+
+        # System prompt
         system_prompt=final_system_prompt,
+
+        # Streaming behavior - enable partial messages for real-time streaming
+        include_partial_messages=config.get("include_partial_messages", True),
+
+        # Session behavior
+        continue_conversation=config.get("continue_conversation", False),
+        fork_session=config.get("fork_session", False),
+
+        # Settings loading
         setting_sources=config.get("setting_sources"),
+
+        # Environment and arguments
+        env=config.get("env") or {},
+        extra_args=config.get("extra_args") or {},
+
+        # Buffer settings
+        max_buffer_size=config.get("max_buffer_size"),
+
+        # User identification
+        user=config.get("user"),
     )
 
-    # Apply project context
+    # Apply working directory - project overrides profile cwd
     if project:
         project_path = settings.workspace_dir / project["path"]
         options.cwd = str(project_path)
+    elif config.get("cwd"):
+        options.cwd = config.get("cwd")
+
+    # Additional directories
+    add_dirs = config.get("add_dirs")
+    if add_dirs:
+        options.add_dirs = add_dirs
 
     # Resume existing session
     if resume_session_id:

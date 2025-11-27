@@ -12,13 +12,38 @@
 	let showProjectModal = false;
 	let showNewProfileForm = false;
 	let showNewProjectForm = false;
+	let editingProfile: any = null;
 
-	// Profile form
-	let newProfileId = '';
-	let newProfileName = '';
-	let newProfileDescription = '';
-	let newProfileModel = 'claude-sonnet-4';
-	let newProfilePermissionMode = 'default';
+	// Profile form state
+	let profileForm = {
+		id: '',
+		name: '',
+		description: '',
+		// Core settings
+		model: 'claude-sonnet-4',
+		permission_mode: 'default',
+		max_turns: null as number | null,
+		// Tool configuration
+		allowed_tools: '',
+		disallowed_tools: '',
+		// Streaming
+		include_partial_messages: true,
+		// Session behavior
+		continue_conversation: false,
+		fork_session: false,
+		// System prompt
+		system_prompt_type: 'preset',
+		system_prompt_preset: 'claude_code',
+		system_prompt_append: '',
+		system_prompt_content: '',
+		// Settings sources
+		setting_sources: [] as string[],
+		// Advanced
+		cwd: '',
+		add_dirs: '',
+		user: '',
+		max_buffer_size: null as number | null
+	};
 
 	// Project form
 	let newProjectId = '';
@@ -91,25 +116,129 @@
 		sidebarOpen = false;
 	}
 
-	async function createProfile() {
-		if (!newProfileId || !newProfileName) return;
+	function resetProfileForm() {
+		profileForm = {
+			id: '',
+			name: '',
+			description: '',
+			model: 'claude-sonnet-4',
+			permission_mode: 'default',
+			max_turns: null,
+			allowed_tools: '',
+			disallowed_tools: '',
+			include_partial_messages: true,
+			continue_conversation: false,
+			fork_session: false,
+			system_prompt_type: 'preset',
+			system_prompt_preset: 'claude_code',
+			system_prompt_append: '',
+			system_prompt_content: '',
+			setting_sources: [],
+			cwd: '',
+			add_dirs: '',
+			user: '',
+			max_buffer_size: null
+		};
+		editingProfile = null;
+	}
 
-		await chat.createProfile({
-			id: newProfileId.toLowerCase().replace(/[^a-z0-9-]/g, '-'),
-			name: newProfileName,
-			description: newProfileDescription || undefined,
-			config: {
-				model: newProfileModel,
-				permission_mode: newProfilePermissionMode
+	function openNewProfileForm() {
+		resetProfileForm();
+		showNewProfileForm = true;
+	}
+
+	function editProfile(profile: any) {
+		editingProfile = profile;
+		const config = profile.config || {};
+		const sp = config.system_prompt || {};
+
+		profileForm = {
+			id: profile.id,
+			name: profile.name,
+			description: profile.description || '',
+			model: config.model || 'claude-sonnet-4',
+			permission_mode: config.permission_mode || 'default',
+			max_turns: config.max_turns || null,
+			allowed_tools: (config.allowed_tools || []).join(', '),
+			disallowed_tools: (config.disallowed_tools || []).join(', '),
+			include_partial_messages: config.include_partial_messages !== false,
+			continue_conversation: config.continue_conversation || false,
+			fork_session: config.fork_session || false,
+			system_prompt_type: sp.type || 'preset',
+			system_prompt_preset: sp.preset || 'claude_code',
+			system_prompt_append: sp.append || '',
+			system_prompt_content: sp.content || '',
+			setting_sources: config.setting_sources || [],
+			cwd: config.cwd || '',
+			add_dirs: (config.add_dirs || []).join(', '),
+			user: config.user || '',
+			max_buffer_size: config.max_buffer_size || null
+		};
+		showNewProfileForm = true;
+	}
+
+	async function saveProfile() {
+		if (!profileForm.id || !profileForm.name) return;
+
+		// Build config object
+		const config: any = {
+			model: profileForm.model,
+			permission_mode: profileForm.permission_mode,
+			include_partial_messages: profileForm.include_partial_messages,
+			continue_conversation: profileForm.continue_conversation,
+			fork_session: profileForm.fork_session
+		};
+
+		// Optional fields
+		if (profileForm.max_turns) config.max_turns = profileForm.max_turns;
+		if (profileForm.allowed_tools.trim()) {
+			config.allowed_tools = profileForm.allowed_tools.split(',').map(t => t.trim()).filter(Boolean);
+		}
+		if (profileForm.disallowed_tools.trim()) {
+			config.disallowed_tools = profileForm.disallowed_tools.split(',').map(t => t.trim()).filter(Boolean);
+		}
+		if (profileForm.setting_sources.length > 0) {
+			config.setting_sources = profileForm.setting_sources;
+		}
+		if (profileForm.cwd.trim()) config.cwd = profileForm.cwd;
+		if (profileForm.add_dirs.trim()) {
+			config.add_dirs = profileForm.add_dirs.split(',').map(d => d.trim()).filter(Boolean);
+		}
+		if (profileForm.user.trim()) config.user = profileForm.user;
+		if (profileForm.max_buffer_size) config.max_buffer_size = profileForm.max_buffer_size;
+
+		// System prompt
+		if (profileForm.system_prompt_type === 'preset') {
+			config.system_prompt = {
+				type: 'preset',
+				preset: profileForm.system_prompt_preset
+			};
+			if (profileForm.system_prompt_append.trim()) {
+				config.system_prompt.append = profileForm.system_prompt_append;
 			}
-		});
+		} else if (profileForm.system_prompt_content.trim()) {
+			config.system_prompt = {
+				type: 'custom',
+				content: profileForm.system_prompt_content
+			};
+		}
 
-		// Reset form
-		newProfileId = '';
-		newProfileName = '';
-		newProfileDescription = '';
-		newProfileModel = 'claude-sonnet-4';
-		newProfilePermissionMode = 'default';
+		if (editingProfile) {
+			await chat.updateProfile(profileForm.id, {
+				name: profileForm.name,
+				description: profileForm.description || undefined,
+				config
+			});
+		} else {
+			await chat.createProfile({
+				id: profileForm.id.toLowerCase().replace(/[^a-z0-9-]/g, '-'),
+				name: profileForm.name,
+				description: profileForm.description || undefined,
+				config
+			});
+		}
+
+		resetProfileForm();
 		showNewProfileForm = false;
 	}
 
@@ -128,7 +257,6 @@
 			description: newProjectDescription || undefined
 		});
 
-		// Reset form
 		newProjectId = '';
 		newProjectName = '';
 		newProjectDescription = '';
@@ -144,6 +272,14 @@
 	function handleNewChat() {
 		chat.startNewChat();
 		sidebarOpen = false;
+	}
+
+	function toggleSettingSource(source: string) {
+		if (profileForm.setting_sources.includes(source)) {
+			profileForm.setting_sources = profileForm.setting_sources.filter(s => s !== source);
+		} else {
+			profileForm.setting_sources = [...profileForm.setting_sources, source];
+		}
 	}
 </script>
 
@@ -328,34 +464,34 @@
 			<!-- Messages -->
 			<div
 				bind:this={messagesContainer}
-				class="flex-1 overflow-y-auto p-4 space-y-4"
+				class="flex-1 overflow-y-auto"
 			>
-				{#if $messages.length === 0}
-					<div class="h-full flex items-center justify-center">
-						<div class="text-center max-w-md px-4">
-							<div class="text-4xl mb-4">💬</div>
-							<p class="text-gray-400 mb-2">Start a conversation with Claude</p>
-							<p class="text-gray-500 text-sm">
-								Using profile: <span class="text-gray-300">{$profiles.find(p => p.id === $selectedProfile)?.name || $selectedProfile}</span>
-							</p>
-							{#if $selectedProject}
-								<p class="text-gray-500 text-sm mt-1">
-									Project: <span class="text-gray-300">{$projects.find(p => p.id === $selectedProject)?.name || $selectedProject}</span>
+				<div class="max-w-4xl mx-auto px-4 py-4 space-y-6">
+					{#if $messages.length === 0}
+						<div class="h-full flex items-center justify-center min-h-[60vh]">
+							<div class="text-center max-w-md px-4">
+								<div class="text-4xl mb-4">💬</div>
+								<p class="text-gray-400 mb-2">Start a conversation with Claude</p>
+								<p class="text-gray-500 text-sm">
+									Using profile: <span class="text-gray-300">{$profiles.find(p => p.id === $selectedProfile)?.name || $selectedProfile}</span>
 								</p>
-							{/if}
+								{#if $selectedProject}
+									<p class="text-gray-500 text-sm mt-1">
+										Project: <span class="text-gray-300">{$projects.find(p => p.id === $selectedProject)?.name || $selectedProject}</span>
+									</p>
+								{/if}
+							</div>
 						</div>
-					</div>
-				{:else}
-					{#each $messages as message}
-						<div class="flex gap-3 {message.role === 'user' ? 'justify-end' : ''}">
-							<div class="max-w-[90%] sm:max-w-[80%] {message.role === 'user' ? 'order-2' : ''}">
+					{:else}
+						{#each $messages as message}
+							<div class="flex flex-col {message.role === 'user' ? 'items-end' : 'items-start'}">
 								<!-- Role label -->
-								<div class="text-xs text-gray-500 mb-1 {message.role === 'user' ? 'text-right' : ''}">
+								<div class="text-xs text-gray-500 mb-1 px-1">
 									{message.role === 'user' ? 'You' : 'Claude'}
 								</div>
 
 								<!-- Message content -->
-								<div class="card p-3 sm:p-4 {message.role === 'user' ? 'bg-primary-900/30 border-primary-800' : ''}">
+								<div class="w-full max-w-[85%] sm:max-w-[75%] card p-3 sm:p-4 {message.role === 'user' ? 'bg-[var(--color-primary)]/10 border-[var(--color-primary)]/30' : ''}">
 									{#if message.role === 'assistant'}
 										<div class="prose prose-invert prose-sm max-w-none">
 											{@html renderMarkdown(message.content)}
@@ -406,55 +542,57 @@
 									{/if}
 								</div>
 							</div>
-						</div>
-					{/each}
-				{/if}
+						{/each}
+					{/if}
 
-				{#if $chatError}
-					<div class="bg-red-900/50 border border-red-500 text-red-300 px-4 py-3 rounded-lg">
-						{$chatError}
-						<button on:click={() => chat.clearError()} class="ml-2 text-red-400 hover:text-red-300">
-							&times;
-						</button>
-					</div>
-				{/if}
+					{#if $chatError}
+						<div class="bg-red-900/50 border border-red-500 text-red-300 px-4 py-3 rounded-lg">
+							{$chatError}
+							<button on:click={() => chat.clearError()} class="ml-2 text-red-400 hover:text-red-300">
+								&times;
+							</button>
+						</div>
+					{/if}
+				</div>
 			</div>
 
 			<!-- Input area -->
-			<div class="p-3 sm:p-4 border-t border-[var(--color-border)] bg-[var(--color-bg)]">
-				<form on:submit|preventDefault={handleSubmit} class="flex gap-2">
-					<textarea
-						bind:value={prompt}
-						on:keydown={handleKeyDown}
-						placeholder="Type a message..."
-						class="input flex-1 resize-none min-h-[44px] max-h-32"
-						rows="1"
-						disabled={$isStreaming || !$claudeAuthenticated}
-					></textarea>
-					{#if $isStreaming}
-						<button
-							type="button"
-							class="btn btn-danger shrink-0"
-							on:click={() => chat.stopGeneration()}
-						>
-							Stop
-						</button>
-					{:else}
-						<button
-							type="submit"
-							class="btn btn-primary shrink-0"
-							disabled={!prompt.trim() || !$claudeAuthenticated}
-						>
-							Send
-						</button>
-					{/if}
-				</form>
+			<div class="border-t border-[var(--color-border)] bg-[var(--color-bg)]">
+				<div class="max-w-4xl mx-auto px-4 py-3">
+					<form on:submit|preventDefault={handleSubmit} class="flex gap-2">
+						<textarea
+							bind:value={prompt}
+							on:keydown={handleKeyDown}
+							placeholder="Type a message..."
+							class="input flex-1 resize-none min-h-[44px] max-h-32"
+							rows="1"
+							disabled={$isStreaming || !$claudeAuthenticated}
+						></textarea>
+						{#if $isStreaming}
+							<button
+								type="button"
+								class="btn btn-danger shrink-0"
+								on:click={() => chat.stopGeneration()}
+							>
+								Stop
+							</button>
+						{:else}
+							<button
+								type="submit"
+								class="btn btn-primary shrink-0"
+								disabled={!prompt.trim() || !$claudeAuthenticated}
+							>
+								Send
+							</button>
+						{/if}
+					</form>
 
-				{#if !$claudeAuthenticated}
-					<p class="mt-2 text-xs sm:text-sm text-yellow-500">
-						Claude CLI not authenticated. Run <code class="bg-[var(--color-surface)] px-1 rounded text-xs">docker exec -it ai-hub claude login</code>
-					</p>
-				{/if}
+					{#if !$claudeAuthenticated}
+						<p class="mt-2 text-xs sm:text-sm text-yellow-500">
+							Claude CLI not authenticated. Run <code class="bg-[var(--color-surface)] px-1 rounded text-xs">docker exec -it ai-hub claude login</code>
+						</p>
+					{/if}
+				</div>
 			</div>
 		</div>
 	</main>
@@ -463,12 +601,14 @@
 <!-- Profile Management Modal -->
 {#if showProfileModal}
 	<div class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-		<div class="card w-full max-w-lg max-h-[80vh] flex flex-col">
+		<div class="card w-full max-w-2xl max-h-[90vh] flex flex-col">
 			<div class="p-4 border-b border-[var(--color-border)] flex items-center justify-between">
-				<h2 class="text-lg font-bold text-white">Manage Profiles</h2>
+				<h2 class="text-lg font-bold text-white">
+					{showNewProfileForm ? (editingProfile ? 'Edit Profile' : 'Create Profile') : 'Manage Profiles'}
+				</h2>
 				<button
 					class="text-gray-400 hover:text-white"
-					on:click={() => { showProfileModal = false; showNewProfileForm = false; }}
+					on:click={() => { showProfileModal = false; showNewProfileForm = false; resetProfileForm(); }}
 				>
 					<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
@@ -479,43 +619,241 @@
 			<div class="flex-1 overflow-y-auto p-4">
 				{#if showNewProfileForm}
 					<div class="space-y-4">
-						<h3 class="text-sm font-medium text-white">Create New Profile</h3>
-						<div>
-							<label class="block text-sm text-gray-400 mb-1">ID (lowercase, no spaces)</label>
-							<input bind:value={newProfileId} class="input" placeholder="my-profile" />
+						<!-- Basic Info -->
+						<div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+							<div>
+								<label class="block text-sm text-gray-400 mb-1">ID {editingProfile ? '(read-only)' : ''}</label>
+								<input
+									bind:value={profileForm.id}
+									class="input"
+									placeholder="my-profile"
+									disabled={!!editingProfile}
+								/>
+							</div>
+							<div>
+								<label class="block text-sm text-gray-400 mb-1">Name *</label>
+								<input bind:value={profileForm.name} class="input" placeholder="My Profile" />
+							</div>
 						</div>
-						<div>
-							<label class="block text-sm text-gray-400 mb-1">Name</label>
-							<input bind:value={newProfileName} class="input" placeholder="My Profile" />
-						</div>
+
 						<div>
 							<label class="block text-sm text-gray-400 mb-1">Description</label>
-							<textarea bind:value={newProfileDescription} class="input" rows="2" placeholder="Optional description"></textarea>
+							<input bind:value={profileForm.description} class="input" placeholder="Optional description" />
 						</div>
-						<div>
-							<label class="block text-sm text-gray-400 mb-1">Model</label>
-							<select bind:value={newProfileModel} class="input">
-								<option value="claude-sonnet-4">Claude Sonnet 4</option>
-								<option value="claude-opus-4">Claude Opus 4</option>
-								<option value="claude-haiku-3-5">Claude Haiku 3.5</option>
-							</select>
+
+						<!-- Core Settings -->
+						<div class="border-t border-[var(--color-border)] pt-4">
+							<h3 class="text-sm font-medium text-white mb-3">Core Settings</h3>
+							<div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+								<div>
+									<label class="block text-sm text-gray-400 mb-1">Model</label>
+									<select bind:value={profileForm.model} class="input">
+										<option value="claude-sonnet-4">Claude Sonnet 4</option>
+										<option value="claude-opus-4">Claude Opus 4</option>
+										<option value="claude-haiku-3-5">Claude Haiku 3.5</option>
+									</select>
+								</div>
+								<div>
+									<label class="block text-sm text-gray-400 mb-1">Permission Mode</label>
+									<select bind:value={profileForm.permission_mode} class="input">
+										<option value="default">Default</option>
+										<option value="acceptEdits">Accept Edits</option>
+										<option value="plan">Plan Only</option>
+										<option value="bypassPermissions">Bypass Permissions</option>
+									</select>
+								</div>
+								<div>
+									<label class="block text-sm text-gray-400 mb-1">Max Turns</label>
+									<input
+										type="number"
+										bind:value={profileForm.max_turns}
+										class="input"
+										placeholder="Unlimited"
+										min="1"
+									/>
+								</div>
+							</div>
 						</div>
-						<div>
-							<label class="block text-sm text-gray-400 mb-1">Permission Mode</label>
-							<select bind:value={newProfilePermissionMode} class="input">
-								<option value="default">Default</option>
-								<option value="bypassPermissions">Bypass Permissions</option>
-								<option value="plan">Plan Only</option>
-							</select>
+
+						<!-- Tool Configuration -->
+						<div class="border-t border-[var(--color-border)] pt-4">
+							<h3 class="text-sm font-medium text-white mb-3">Tool Configuration</h3>
+							<div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+								<div>
+									<label class="block text-sm text-gray-400 mb-1">Allowed Tools</label>
+									<input
+										bind:value={profileForm.allowed_tools}
+										class="input"
+										placeholder="Read, Write, Bash (comma-separated)"
+									/>
+									<p class="text-xs text-gray-600 mt-1">Empty = all tools allowed</p>
+								</div>
+								<div>
+									<label class="block text-sm text-gray-400 mb-1">Disallowed Tools</label>
+									<input
+										bind:value={profileForm.disallowed_tools}
+										class="input"
+										placeholder="Write, Edit (comma-separated)"
+									/>
+								</div>
+							</div>
 						</div>
-						<div class="flex gap-2">
-							<button on:click={createProfile} class="btn btn-primary flex-1">Create</button>
-							<button on:click={() => showNewProfileForm = false} class="btn btn-secondary flex-1">Cancel</button>
+
+						<!-- Streaming & Session Behavior -->
+						<div class="border-t border-[var(--color-border)] pt-4">
+							<h3 class="text-sm font-medium text-white mb-3">Behavior Settings</h3>
+							<div class="space-y-3">
+								<label class="flex items-center gap-3">
+									<input type="checkbox" bind:checked={profileForm.include_partial_messages} class="w-4 h-4" />
+									<div>
+										<span class="text-sm text-white">Include Partial Messages</span>
+										<p class="text-xs text-gray-500">Stream partial text as it's being generated</p>
+									</div>
+								</label>
+								<label class="flex items-center gap-3">
+									<input type="checkbox" bind:checked={profileForm.continue_conversation} class="w-4 h-4" />
+									<div>
+										<span class="text-sm text-white">Continue Conversation</span>
+										<p class="text-xs text-gray-500">Automatically continue most recent conversation</p>
+									</div>
+								</label>
+								<label class="flex items-center gap-3">
+									<input type="checkbox" bind:checked={profileForm.fork_session} class="w-4 h-4" />
+									<div>
+										<span class="text-sm text-white">Fork Session</span>
+										<p class="text-xs text-gray-500">Create new session ID when resuming</p>
+									</div>
+								</label>
+							</div>
+						</div>
+
+						<!-- System Prompt -->
+						<div class="border-t border-[var(--color-border)] pt-4">
+							<h3 class="text-sm font-medium text-white mb-3">System Prompt</h3>
+							<div class="space-y-3">
+								<div>
+									<label class="block text-sm text-gray-400 mb-1">Prompt Type</label>
+									<select bind:value={profileForm.system_prompt_type} class="input">
+										<option value="preset">Use Claude Code Preset</option>
+										<option value="custom">Custom Prompt</option>
+									</select>
+								</div>
+
+								{#if profileForm.system_prompt_type === 'preset'}
+									<div>
+										<label class="block text-sm text-gray-400 mb-1">Append Instructions</label>
+										<textarea
+											bind:value={profileForm.system_prompt_append}
+											class="input"
+											rows="3"
+											placeholder="Additional instructions to append to the Claude Code preset..."
+										></textarea>
+									</div>
+								{:else}
+									<div>
+										<label class="block text-sm text-gray-400 mb-1">Custom System Prompt</label>
+										<textarea
+											bind:value={profileForm.system_prompt_content}
+											class="input"
+											rows="4"
+											placeholder="Enter your custom system prompt..."
+										></textarea>
+									</div>
+								{/if}
+							</div>
+						</div>
+
+						<!-- Settings Sources -->
+						<div class="border-t border-[var(--color-border)] pt-4">
+							<h3 class="text-sm font-medium text-white mb-3">Settings Sources</h3>
+							<p class="text-xs text-gray-500 mb-2">Load settings from filesystem locations</p>
+							<div class="flex flex-wrap gap-3">
+								<label class="flex items-center gap-2">
+									<input
+										type="checkbox"
+										checked={profileForm.setting_sources.includes('user')}
+										on:change={() => toggleSettingSource('user')}
+										class="w-4 h-4"
+									/>
+									<span class="text-sm text-gray-300">User (~/.claude)</span>
+								</label>
+								<label class="flex items-center gap-2">
+									<input
+										type="checkbox"
+										checked={profileForm.setting_sources.includes('project')}
+										on:change={() => toggleSettingSource('project')}
+										class="w-4 h-4"
+									/>
+									<span class="text-sm text-gray-300">Project (.claude)</span>
+								</label>
+								<label class="flex items-center gap-2">
+									<input
+										type="checkbox"
+										checked={profileForm.setting_sources.includes('local')}
+										on:change={() => toggleSettingSource('local')}
+										class="w-4 h-4"
+									/>
+									<span class="text-sm text-gray-300">Local</span>
+								</label>
+							</div>
+						</div>
+
+						<!-- Advanced Settings -->
+						<details class="border-t border-[var(--color-border)] pt-4">
+							<summary class="text-sm font-medium text-white cursor-pointer">Advanced Settings</summary>
+							<div class="mt-3 space-y-4">
+								<div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+									<div>
+										<label class="block text-sm text-gray-400 mb-1">Working Directory</label>
+										<input
+											bind:value={profileForm.cwd}
+											class="input"
+											placeholder="/workspace/my-project"
+										/>
+									</div>
+									<div>
+										<label class="block text-sm text-gray-400 mb-1">User Identifier</label>
+										<input
+											bind:value={profileForm.user}
+											class="input"
+											placeholder="user@example.com"
+										/>
+									</div>
+								</div>
+								<div>
+									<label class="block text-sm text-gray-400 mb-1">Additional Directories</label>
+									<input
+										bind:value={profileForm.add_dirs}
+										class="input"
+										placeholder="/extra/dir1, /extra/dir2 (comma-separated)"
+									/>
+								</div>
+								<div>
+									<label class="block text-sm text-gray-400 mb-1">Max Buffer Size (bytes)</label>
+									<input
+										type="number"
+										bind:value={profileForm.max_buffer_size}
+										class="input"
+										placeholder="Default"
+										min="1024"
+									/>
+								</div>
+							</div>
+						</details>
+
+						<!-- Actions -->
+						<div class="flex gap-2 pt-4 border-t border-[var(--color-border)]">
+							<button on:click={saveProfile} class="btn btn-primary flex-1">
+								{editingProfile ? 'Save Changes' : 'Create Profile'}
+							</button>
+							<button on:click={() => { showNewProfileForm = false; resetProfileForm(); }} class="btn btn-secondary flex-1">
+								Cancel
+							</button>
 						</div>
 					</div>
 				{:else}
 					<button
-						on:click={() => showNewProfileForm = true}
+						on:click={openNewProfileForm}
 						class="btn btn-secondary w-full mb-4 flex items-center justify-center gap-2"
 					>
 						<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -537,17 +875,32 @@
 									{#if profile.description}
 										<p class="text-xs text-gray-500 truncate">{profile.description}</p>
 									{/if}
+									<p class="text-xs text-gray-600 mt-1">
+										{profile.config?.model || 'claude-sonnet-4'} • {profile.config?.permission_mode || 'default'}
+									</p>
 								</div>
-								{#if !profile.is_builtin}
-									<button
-										on:click={() => deleteProfile(profile.id)}
-										class="text-gray-500 hover:text-red-500 ml-2"
-									>
-										<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-											<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-										</svg>
-									</button>
-								{/if}
+								<div class="flex items-center gap-1 ml-2">
+									{#if !profile.is_builtin}
+										<button
+											on:click={() => editProfile(profile)}
+											class="p-1.5 text-gray-500 hover:text-white rounded"
+											title="Edit profile"
+										>
+											<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+												<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+											</svg>
+										</button>
+										<button
+											on:click={() => deleteProfile(profile.id)}
+											class="p-1.5 text-gray-500 hover:text-red-500 rounded"
+											title="Delete profile"
+										>
+											<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+												<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+											</svg>
+										</button>
+									{/if}
+								</div>
 							</div>
 						{/each}
 					</div>
