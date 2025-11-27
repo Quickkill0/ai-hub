@@ -162,8 +162,9 @@ async def execute_query(
     try:
         async for message in query(prompt=prompt, options=options):
             if isinstance(message, SystemMessage):
-                if message.subtype == "init":
-                    sdk_session_id = message.session_id
+                # session_id comes in warmup message data after first query
+                if message.subtype == "init" and "session_id" in message.data:
+                    sdk_session_id = message.data["session_id"]
 
             elif isinstance(message, AssistantMessage):
                 for block in message.content:
@@ -282,8 +283,9 @@ async def stream_query(
     try:
         async for message in query(prompt=prompt, options=options):
             if isinstance(message, SystemMessage):
-                if message.subtype == "init":
-                    sdk_session_id = message.session_id
+                # session_id comes in warmup message data after first query
+                if message.subtype == "init" and "session_id" in message.data:
+                    sdk_session_id = message.data["session_id"]
 
             elif isinstance(message, AssistantMessage):
                 for block in message.content:
