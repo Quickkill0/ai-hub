@@ -10,8 +10,8 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
+/lib/
+/lib64/
 parts/
 sdist/
 var/
@@ -49,4 +49,13 @@ logs/
 docker-compose.override.yml
 /.claude
 Claude Code.bat
-/docs
+
+# Frontend build
+frontend/node_modules/
+frontend/build/
+frontend/.svelte-kit/
+app/static/
+
+# Data
+/data
+/workspace
