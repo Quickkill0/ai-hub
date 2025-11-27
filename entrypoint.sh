@@ -35,6 +35,8 @@ chown -R appuser:appuser /home/appuser/.config /home/appuser/.claude
 # Copy Claude credentials from root if they exist and appuser doesn't have them
 if [ -f /root/.claude/.credentials.json ] && [ ! -f /home/appuser/.claude/.credentials.json ]; then
     echo "Copying Claude credentials from root to appuser..."
+    # Copy hidden files explicitly, then everything else
+    cp /root/.claude/.credentials.json /home/appuser/.claude/ 2>/dev/null || true
     cp -r /root/.claude/* /home/appuser/.claude/ 2>/dev/null || true
     chown -R appuser:appuser /home/appuser/.claude
 fi
