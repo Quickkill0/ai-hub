@@ -20,7 +20,20 @@ from app.core.profiles import get_profile_or_builtin
 logger = logging.getLogger(__name__)
 
 # Track active streaming clients for interrupt support
+# Key is session_id, value is the client
 _active_clients: Dict[str, ClaudeSDKClient] = {}
+
+async def cleanup_stale_clients():
+    """Clean up any stale client connections"""
+    stale_ids = list(_active_clients.keys())
+    for session_id in stale_ids:
+        client = _active_clients.pop(session_id, None)
+        if client:
+            try:
+                await client.disconnect()
+                logger.info(f"Cleaned up stale client for session {session_id}")
+            except Exception as e:
+                logger.warning(f"Error cleaning up stale client {session_id}: {e}")
 
 
 # Security restrictions that apply to all requests
@@ -298,6 +311,7 @@ async def stream_query(
             yield {"type": "error", "message": f"Session not found: {session_id}"}
             return
         resume_id = session.get("sdk_session_id")
+        logger.info(f"Resuming session {session_id} with SDK session {resume_id}")
     else:
         session_id = str(uuid.uuid4())
         session = database.create_session(
@@ -306,6 +320,16 @@ async def stream_query(
             project_id=project_id
         )
         resume_id = None
+        logger.info(f"Created new session {session_id}")
+
+    # Clean up any existing active client for this session before starting
+    if session_id in _active_clients:
+        old_client = _active_clients.pop(session_id)
+        try:
+            await old_client.disconnect()
+            logger.info(f"Cleaned up old client for session {session_id}")
+        except Exception as e:
+            logger.warning(f"Error cleaning up old client: {e}")
 
     # Store user message
     database.add_session_message(
@@ -328,7 +352,7 @@ async def stream_query(
     # Execute query using ClaudeSDKClient for interrupt support
     response_text = []
     metadata = {}
-    sdk_session_id = None
+    sdk_session_id = resume_id  # Start with existing SDK session ID if resuming
     client = None
     interrupted = False
 
@@ -336,7 +360,14 @@ async def stream_query(
         client = ClaudeSDKClient(options=options)
         _active_clients[session_id] = client
 
-        await client.connect()
+        # Connect with timeout
+        try:
+            await asyncio.wait_for(client.connect(), timeout=30.0)
+        except asyncio.TimeoutError:
+            logger.error(f"Timeout connecting to Claude SDK for session {session_id}")
+            yield {"type": "error", "message": "Connection timeout. Please try again."}
+            return
+
         await client.query(prompt)
 
         async for message in client.receive_response():
@@ -394,14 +425,14 @@ async def stream_query(
             except Exception:
                 pass
 
-    # Update session
-    if sdk_session_id:
-        database.update_session(
-            session_id=session_id,
-            sdk_session_id=sdk_session_id,
-            cost_increment=metadata.get("total_cost_usd", 0),
-            turn_increment=metadata.get("num_turns", 0)
-        )
+    # Update session - always update cost/turns, update sdk_session_id if we got a new one
+    database.update_session(
+        session_id=session_id,
+        sdk_session_id=sdk_session_id,  # May be existing or new from init message
+        cost_increment=metadata.get("total_cost_usd", 0),
+        turn_increment=metadata.get("num_turns", 0)
+    )
+    logger.info(f"Updated session {session_id}, sdk_session_id={sdk_session_id}")
 
     # Store assistant response
     full_response = "\n".join(response_text)
