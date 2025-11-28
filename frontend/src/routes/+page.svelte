@@ -57,6 +57,10 @@
 	let newProjectName = '';
 	let newProjectDescription = '';
 
+	// Track when page became visible to suppress stale errors
+	let lastVisibleTime = Date.now();
+	let errorGracePeriod = false;
+
 	onMount(() => {
 		// Load initial data
 		Promise.all([
@@ -73,12 +77,28 @@
 				const sessionId = $currentSessionId;
 				if (sessionId) {
 					console.log('[UI] Page became visible, refreshing session state...');
+
+					// Set grace period to suppress stale errors from backgrounded connections
+					errorGracePeriod = true;
+					lastVisibleTime = Date.now();
+
 					// Clear any network errors from when the page was in background
 					chat.clearError();
+
 					// Reload the current session to get latest messages
 					chat.loadSession(sessionId);
 					// Also refresh sessions list in case title changed
 					chat.loadSessions();
+
+					// Keep clearing errors for a grace period (old SSE errors may come in async)
+					const clearErrorsInterval = setInterval(() => {
+						if (Date.now() - lastVisibleTime < 2000) {
+							chat.clearError();
+						} else {
+							errorGracePeriod = false;
+							clearInterval(clearErrorsInterval);
+						}
+					}, 200);
 				}
 			}
 		};
