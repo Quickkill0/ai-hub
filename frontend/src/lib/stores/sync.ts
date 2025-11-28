@@ -180,8 +180,11 @@ function createSyncStore() {
 	function handleSyncEvent(event: SyncEvent) {
 		const deviceId = getDeviceIdSync();
 
-		// Ignore events from our own device
-		if (event.source_device_id === deviceId) {
+		console.log('[Sync] Received event:', event.event_type, 'source:', event.source_device_id, 'my device:', deviceId);
+
+		// Ignore events from our own device (but NOT events with null/undefined source - those are from background tasks)
+		if (event.source_device_id && event.source_device_id === deviceId) {
+			console.log('[Sync] Ignoring event from own device');
 			return;
 		}
 

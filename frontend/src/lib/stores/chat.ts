@@ -78,8 +78,11 @@ function createChatStore() {
 	function handleSyncEvent(event: SyncEvent) {
 		const state = get({ subscribe });
 
+		console.log('[Chat] handleSyncEvent:', event.event_type, 'session:', event.session_id, 'current:', state.sessionId);
+
 		// Only process events for the current session
 		if (event.session_id !== state.sessionId) {
+			console.log('[Chat] Ignoring event for different session');
 			return;
 		}
 
@@ -129,8 +132,9 @@ function createChatStore() {
 			}
 
 			case 'stream_chunk': {
-				// Streaming chunk from another device
+				// Streaming chunk (from background task or another device)
 				const chunkType = event.data.chunk_type as string;
+				console.log('[Chat] Received stream_chunk:', chunkType, event.data);
 
 				update((s) => {
 					const messages = [...s.messages];
@@ -320,16 +324,14 @@ function createChatStore() {
 				}> | undefined;
 
 				update((s) => {
-					// If we're streaming locally, don't overwrite our state
-					if (s.isStreaming) {
-						return s;
-					}
-
-					// If session is streaming remotely and we have buffered messages, merge them
+					// If session is streaming and we have buffered messages, merge them
+					// This handles both:
+					// 1. Reconnecting to an active stream on another device
+					// 2. Late-joining our own stream after WebSocket connects
 					if (isStreaming && streamingMessages && streamingMessages.length > 0) {
-						// Check if we already have streaming messages (avoid duplicates)
-						const hasStreamingMsgs = s.messages.some(m => m.streaming);
-						if (!hasStreamingMsgs) {
+						// Check if we already have streaming assistant messages (avoid duplicates)
+						const hasStreamingAssistant = s.messages.some(m => m.streaming && m.role === 'assistant');
+						if (!hasStreamingAssistant) {
 							console.log('[Chat] State event: session is streaming, appending buffered messages:', streamingMessages.length);
 							const newMsgs = streamingMessages.map((sm, i) => ({
 								id: `stream-${Date.now()}-${i}`,
@@ -344,11 +346,13 @@ function createChatStore() {
 							return {
 								...s,
 								messages: [...s.messages, ...newMsgs],
+								isStreaming: true,
 								isRemoteStreaming: isStreaming
 							};
 						}
 					}
 
+					// Don't change isStreaming if we're already streaming locally
 					return { ...s, isRemoteStreaming: isStreaming };
 				});
 				break;
