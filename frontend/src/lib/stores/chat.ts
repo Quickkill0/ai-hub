@@ -103,7 +103,7 @@ function createChatStore() {
 			}
 
 			case 'stream_start': {
-				// Another device started streaming
+				// Streaming started (either local or remote)
 				remoteMsgId = event.data.message_id as string;
 				const placeholderMsg: ChatMessage = {
 					id: remoteMsgId,
@@ -112,11 +112,19 @@ function createChatStore() {
 					type: 'text',
 					streaming: true
 				};
-				update((s) => ({
-					...s,
-					isRemoteStreaming: true,
-					messages: [...s.messages, placeholderMsg]
-				}));
+				update((s) => {
+					// Check if we already have a streaming message (avoid duplicates)
+					const hasStreamingMsg = s.messages.some(m => m.streaming && m.role === 'assistant');
+					if (hasStreamingMsg) {
+						// Already have a streaming message, just update streaming state
+						return { ...s, isStreaming: true };
+					}
+					return {
+						...s,
+						isStreaming: true,
+						messages: [...s.messages, placeholderMsg]
+					};
+				});
 				break;
 			}
 
@@ -245,7 +253,7 @@ function createChatStore() {
 			}
 
 			case 'stream_end': {
-				// Streaming completed on another device
+				// Streaming completed (local or remote)
 				const metadata = event.data.metadata as Record<string, unknown>;
 				const interrupted = event.data.interrupted as boolean;
 
@@ -279,6 +287,7 @@ function createChatStore() {
 					return {
 						...s,
 						messages: cleanedMessages,
+						isStreaming: false,
 						isRemoteStreaming: false
 					};
 				});
@@ -527,17 +536,7 @@ function createChatStore() {
 				content: prompt
 			};
 
-			// Add placeholder for assistant response (text message)
-			const assistantMsgId = `msg-${Date.now() + 1}`;
-			const assistantMessage: ChatMessage = {
-				id: assistantMsgId,
-				role: 'assistant',
-				content: '',
-				type: 'text',
-				streaming: true
-			};
-
-			// Capture current state values AFTER updating UI
+			// Capture current state values
 			let currentSessionId: string | null = null;
 			let currentProfile: string = 'claude-code';
 			let currentProject: string = '';
@@ -548,7 +547,8 @@ function createChatStore() {
 				currentProject = s.selectedProject;
 				return {
 					...s,
-					messages: [...s.messages, userMessage, assistantMessage],
+					// Only add user message - assistant placeholder will come from stream_start event
+					messages: [...s.messages, userMessage],
 					isStreaming: true,
 					error: null
 				};
@@ -603,10 +603,10 @@ function createChatStore() {
 				await this.loadSessions();
 
 			} catch (e: any) {
-				// Remove the placeholder messages on error
+				// Remove the user message on error
 				update(s => ({
 					...s,
-					messages: s.messages.filter(m => m.id !== userMsgId && m.id !== assistantMsgId),
+					messages: s.messages.filter(m => m.id !== userMsgId),
 					isStreaming: false,
 					error: e.message || 'Failed to send message'
 				}));
