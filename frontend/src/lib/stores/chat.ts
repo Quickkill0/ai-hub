@@ -179,8 +179,6 @@ function createChatStore() {
 		},
 
 		async sendMessage(prompt: string) {
-			const state = get({ subscribe });
-
 			// Create abort controller for this request
 			const abortController = new AbortController();
 
@@ -202,26 +200,38 @@ function createChatStore() {
 				streaming: true
 			};
 
-			update(s => ({
-				...s,
-				messages: [...s.messages, userMessage, assistantMessage],
-				isStreaming: true,
-				error: null,
-				abortController
-			}));
+			// Capture current state values AFTER updating UI
+			// This ensures we get the latest sessionId even if loadSession just completed
+			let currentSessionId: string | null = null;
+			let currentProfile: string = 'claude-code';
+			let currentProject: string = '';
 
-			// Build request
+			update(s => {
+				// Capture current values from store during update
+				currentSessionId = s.sessionId;
+				currentProfile = s.selectedProfile;
+				currentProject = s.selectedProject;
+				return {
+					...s,
+					messages: [...s.messages, userMessage, assistantMessage],
+					isStreaming: true,
+					error: null,
+					abortController
+				};
+			});
+
+			// Build request with captured values
 			const body: Record<string, unknown> = {
 				prompt,
-				profile: state.selectedProfile
+				profile: currentProfile
 			};
 
-			if (state.sessionId) {
-				body.session_id = state.sessionId;
+			if (currentSessionId) {
+				body.session_id = currentSessionId;
 			}
 
-			if (state.selectedProject) {
-				body.project = state.selectedProject;
+			if (currentProject) {
+				body.project = currentProject;
 			}
 
 			try {
