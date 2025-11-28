@@ -316,7 +316,8 @@ async def stream_query(
     profile_id: str,
     project_id: Optional[str] = None,
     overrides: Optional[Dict[str, Any]] = None,
-    session_id: Optional[str] = None
+    session_id: Optional[str] = None,
+    api_user_id: Optional[str] = None
 ) -> AsyncGenerator[Dict[str, Any], None]:
     """
     Execute a streaming query using ClaudeSDKClient.
@@ -362,7 +363,8 @@ async def stream_query(
             session_id=session_id,
             profile_id=profile_id,
             project_id=project_id,
-            title=title
+            title=title,
+            api_user_id=api_user_id
         )
         is_new_session = True
         logger.info(f"Created new session {session_id} with title: {title}")

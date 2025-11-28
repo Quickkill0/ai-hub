@@ -14,7 +14,7 @@ from app.core.models import (
 )
 from app.core.query_engine import execute_query, stream_query, interrupt_session, get_active_sessions
 from app.core.auth import auth_service
-from app.api.auth import require_auth
+from app.api.auth import require_auth, get_api_user_from_request
 
 logger = logging.getLogger(__name__)
 
@@ -158,12 +158,28 @@ async def conversation(
 @router.post("/conversation/stream")
 async def stream_conversation(
     request: ConversationRequest,
+    http_request: Request,
     token: str = Depends(require_auth),
     _: None = Depends(require_claude_auth)
 ):
     """
     SSE streaming conversation.
+    When authenticated via API key, uses the API user's configured project and profile.
     """
+    # Get API user if authenticated via API key
+    api_user = get_api_user_from_request(http_request)
+
+    # Determine profile and project - API user config overrides request
+    if api_user:
+        # API users use their configured project/profile, request values ignored
+        profile_id = api_user.get("profile_id") or request.profile or "claude-code"
+        project_id = api_user.get("project_id") or request.project
+        api_user_id = api_user.get("id")
+    else:
+        profile_id = request.profile or "claude-code"
+        project_id = request.project
+        api_user_id = None
+
     async def event_generator():
         try:
             overrides = None
@@ -172,10 +188,11 @@ async def stream_conversation(
 
             async for event in stream_query(
                 prompt=request.prompt,
-                profile_id=request.profile or "claude-code",
-                project_id=request.project,
+                profile_id=profile_id,
+                project_id=project_id,
                 overrides=overrides,
-                session_id=request.session_id
+                session_id=request.session_id,
+                api_user_id=api_user_id
             ):
                 event_type = event.get("type", "message")
                 data = json.dumps(event)

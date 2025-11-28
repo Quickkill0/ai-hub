@@ -3,9 +3,10 @@ Authentication API routes
 """
 
 import os
+import hashlib
 import subprocess
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
 
 from fastapi import APIRouter, HTTPException, Response, Request, Depends, status
 
@@ -14,6 +15,7 @@ from app.core.models import (
 )
 from app.core.auth import auth_service
 from app.core.config import settings
+from app.db import database as db
 
 router = APIRouter(prefix="/api/v1/auth", tags=["Authentication"])
 
@@ -23,15 +25,47 @@ def get_session_token(request: Request) -> Optional[str]:
     return request.cookies.get("session")
 
 
-def require_auth(request: Request):
-    """Dependency that requires authentication"""
+def get_api_key(request: Request) -> Optional[str]:
+    """Extract API key from Authorization header"""
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        return auth_header[7:]
+    return None
+
+
+def hash_api_key(api_key: str) -> str:
+    """Hash an API key for lookup"""
+    return hashlib.sha256(api_key.encode()).hexdigest()
+
+
+def require_auth(request: Request) -> str:
+    """Dependency that requires authentication (cookie or API key)"""
+    # First try cookie-based auth
     token = get_session_token(request)
-    if not token or not auth_service.validate_session(token):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Not authenticated"
-        )
-    return token
+    if token and auth_service.validate_session(token):
+        return token
+
+    # Then try API key auth
+    api_key = get_api_key(request)
+    if api_key:
+        key_hash = hash_api_key(api_key)
+        api_user = db.get_api_user_by_key_hash(key_hash)
+        if api_user:
+            # Update last used timestamp
+            db.update_api_user_last_used(api_user["id"])
+            # Store API user info in request state for later use
+            request.state.api_user = api_user
+            return f"api_key:{api_user['id']}"
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Not authenticated"
+    )
+
+
+def get_api_user_from_request(request: Request) -> Optional[dict]:
+    """Get API user from request state if authenticated via API key"""
+    return getattr(request.state, "api_user", None)
 
 
 @router.get("/status", response_model=AuthStatus)

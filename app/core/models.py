@@ -301,3 +301,43 @@ class StatsResponse(BaseModel):
     total_cost_usd: float
     total_tokens_in: int
     total_tokens_out: int
+
+
+# ============================================================================
+# API User Models
+# ============================================================================
+
+class ApiUserBase(BaseModel):
+    """Base API user fields"""
+    name: str = Field(..., min_length=1, max_length=100)
+    description: Optional[str] = None
+    project_id: Optional[str] = None
+    profile_id: Optional[str] = None
+
+
+class ApiUserCreate(ApiUserBase):
+    """API user creation request"""
+    pass
+
+
+class ApiUserUpdate(BaseModel):
+    """API user update request"""
+    name: Optional[str] = None
+    description: Optional[str] = None
+    project_id: Optional[str] = None
+    profile_id: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+class ApiUser(ApiUserBase):
+    """Full API user response (without sensitive data)"""
+    id: str
+    is_active: bool = True
+    created_at: datetime
+    updated_at: datetime
+    last_used_at: Optional[datetime] = None
+
+
+class ApiUserWithKey(ApiUser):
+    """API user response with newly generated key (only on create)"""
+    api_key: str  # Only returned once on creation

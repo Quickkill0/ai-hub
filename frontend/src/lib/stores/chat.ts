@@ -100,11 +100,11 @@ function createChatStore() {
 					content: m.content,
 					metadata: m.metadata
 				}));
+				// Don't change selectedProfile when resuming - keep user's current selection
 				update(s => ({
 					...s,
 					sessionId: session.id,
-					messages,
-					selectedProfile: session.profile_id
+					messages
 				}));
 			} catch (e: any) {
 				update(s => ({ ...s, error: e.detail || 'Failed to load session' }));

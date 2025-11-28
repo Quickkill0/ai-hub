@@ -18,7 +18,7 @@ from app.core.profiles import seed_builtin_profiles
 from app.core.auth import auth_service
 
 # Import API routers
-from app.api import auth, profiles, projects, sessions, query, system
+from app.api import auth, profiles, projects, sessions, query, system, api_users
 
 # Configure logging
 logging.basicConfig(
@@ -90,6 +90,7 @@ app.include_router(profiles.router)
 app.include_router(projects.router)
 app.include_router(sessions.router)
 app.include_router(query.router)
+app.include_router(api_users.router)
 
 # Serve static files (Svelte build) if they exist
 static_dir = Path(__file__).parent / "static"
@@ -123,6 +124,10 @@ if static_dir.exists():
 
     @app.get("/chat/{path:path}")
     async def serve_spa_chat_path(path: str):
+        return FileResponse(static_dir / "index.html")
+
+    @app.get("/settings")
+    async def serve_spa_settings():
         return FileResponse(static_dir / "index.html")
 
     @app.get("/favicon.svg")

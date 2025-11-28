@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 # Schema version for migrations
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 def get_connection() -> sqlite3.Connection:
@@ -119,6 +119,7 @@ def _create_schema(cursor: sqlite3.Cursor):
             id TEXT PRIMARY KEY,
             project_id TEXT,
             profile_id TEXT NOT NULL,
+            api_user_id TEXT,
             sdk_session_id TEXT,
             title TEXT,
             status TEXT DEFAULT 'active',
@@ -129,7 +130,8 @@ def _create_schema(cursor: sqlite3.Cursor):
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL,
-            FOREIGN KEY (profile_id) REFERENCES profiles(id)
+            FOREIGN KEY (profile_id) REFERENCES profiles(id),
+            FOREIGN KEY (api_user_id) REFERENCES api_users(id) ON DELETE SET NULL
         )
     """)
 
@@ -172,6 +174,24 @@ def _create_schema(cursor: sqlite3.Cursor):
         )
     """)
 
+    # API users (for programmatic access with isolated workspaces)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS api_users (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            api_key_hash TEXT NOT NULL,
+            project_id TEXT,
+            profile_id TEXT,
+            is_active BOOLEAN DEFAULT TRUE,
+            description TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            last_used_at TIMESTAMP,
+            FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL,
+            FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE SET NULL
+        )
+    """)
+
     # Create indexes
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project_id)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status)")
@@ -179,6 +199,8 @@ def _create_schema(cursor: sqlite3.Cursor):
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_session_messages_session ON session_messages(session_id)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_usage_log_created ON usage_log(created_at)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_auth_sessions_expires ON auth_sessions(expires_at)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_api_users_active ON api_users(is_active)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_sessions_api_user ON sessions(api_user_id)")
 
 
 def row_to_dict(row: Optional[sqlite3.Row]) -> Optional[Dict[str, Any]]:
@@ -473,6 +495,7 @@ def get_sessions(
     project_id: Optional[str] = None,
     profile_id: Optional[str] = None,
     status: Optional[str] = None,
+    api_user_id: Optional[str] = None,
     limit: int = 50,
     offset: int = 0
 ) -> List[Dict[str, Any]]:
@@ -489,6 +512,12 @@ def get_sessions(
     if status:
         query += " AND status = ?"
         params.append(status)
+    if api_user_id is not None:
+        if api_user_id:
+            query += " AND api_user_id = ?"
+            params.append(api_user_id)
+        else:
+            query += " AND api_user_id IS NULL"
 
     query += " ORDER BY updated_at DESC LIMIT ? OFFSET ?"
     params.extend([limit, offset])
@@ -503,16 +532,17 @@ def create_session(
     session_id: str,
     profile_id: str,
     project_id: Optional[str] = None,
-    title: Optional[str] = None
+    title: Optional[str] = None,
+    api_user_id: Optional[str] = None
 ) -> Dict[str, Any]:
     """Create a new session"""
     now = datetime.utcnow().isoformat()
     with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute(
-            """INSERT INTO sessions (id, profile_id, project_id, title, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            (session_id, profile_id, project_id, title, now, now)
+            """INSERT INTO sessions (id, profile_id, project_id, title, api_user_id, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (session_id, profile_id, project_id, title, api_user_id, now, now)
         )
     return get_session(session_id)
 
@@ -673,3 +703,129 @@ def get_usage_stats() -> Dict[str, Any]:
             "total_tokens_out": row["total_tokens_out"],
             "total_cost_usd": row["total_cost_usd"]
         }
+
+
+# ============================================================================
+# API User Operations
+# ============================================================================
+
+def get_api_user(user_id: str) -> Optional[Dict[str, Any]]:
+    """Get an API user by ID"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM api_users WHERE id = ?", (user_id,))
+        return row_to_dict(cursor.fetchone())
+
+
+def get_api_user_by_key_hash(key_hash: str) -> Optional[Dict[str, Any]]:
+    """Get an API user by API key hash"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT * FROM api_users WHERE api_key_hash = ? AND is_active = TRUE",
+            (key_hash,)
+        )
+        return row_to_dict(cursor.fetchone())
+
+
+def get_all_api_users() -> List[Dict[str, Any]]:
+    """Get all API users"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM api_users ORDER BY created_at DESC")
+        return rows_to_list(cursor.fetchall())
+
+
+def create_api_user(
+    user_id: str,
+    name: str,
+    api_key_hash: str,
+    project_id: Optional[str] = None,
+    profile_id: Optional[str] = None,
+    description: Optional[str] = None
+) -> Dict[str, Any]:
+    """Create a new API user"""
+    now = datetime.utcnow().isoformat()
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """INSERT INTO api_users (id, name, api_key_hash, project_id, profile_id, description, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (user_id, name, api_key_hash, project_id, profile_id, description, now, now)
+        )
+    return get_api_user(user_id)
+
+
+def update_api_user(
+    user_id: str,
+    name: Optional[str] = None,
+    project_id: Optional[str] = None,
+    profile_id: Optional[str] = None,
+    description: Optional[str] = None,
+    is_active: Optional[bool] = None
+) -> Optional[Dict[str, Any]]:
+    """Update an API user"""
+    existing = get_api_user(user_id)
+    if not existing:
+        return None
+
+    updates = []
+    values = []
+    if name is not None:
+        updates.append("name = ?")
+        values.append(name)
+    if project_id is not None:
+        updates.append("project_id = ?")
+        values.append(project_id if project_id else None)
+    if profile_id is not None:
+        updates.append("profile_id = ?")
+        values.append(profile_id if profile_id else None)
+    if description is not None:
+        updates.append("description = ?")
+        values.append(description)
+    if is_active is not None:
+        updates.append("is_active = ?")
+        values.append(is_active)
+
+    if updates:
+        updates.append("updated_at = ?")
+        values.append(datetime.utcnow().isoformat())
+        values.append(user_id)
+
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                f"UPDATE api_users SET {', '.join(updates)} WHERE id = ?",
+                values
+            )
+
+    return get_api_user(user_id)
+
+
+def update_api_user_key(user_id: str, api_key_hash: str) -> Optional[Dict[str, Any]]:
+    """Update an API user's key"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE api_users SET api_key_hash = ?, updated_at = ? WHERE id = ?",
+            (api_key_hash, datetime.utcnow().isoformat(), user_id)
+        )
+    return get_api_user(user_id)
+
+
+def update_api_user_last_used(user_id: str):
+    """Update the last_used_at timestamp for an API user"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE api_users SET last_used_at = ? WHERE id = ?",
+            (datetime.utcnow().isoformat(), user_id)
+        )
+
+
+def delete_api_user(user_id: str) -> bool:
+    """Delete an API user"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM api_users WHERE id = ?", (user_id,))
+        return cursor.rowcount > 0
