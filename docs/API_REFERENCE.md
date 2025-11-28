@@ -1,6 +1,6 @@
 # AI Hub API Reference
 
-Complete API documentation for integrating with AI Hub, a web interface for Claude Code.
+Complete API documentation for integrating external applications with AI Hub.
 
 ## Base URL
 
@@ -10,227 +10,107 @@ http://localhost:8000/api/v1
 
 ## Authentication
 
-All API endpoints (except health check) require authentication via session cookie.
+**All API requests require authentication via API key.**
 
-### Authentication Flow
+API keys are created by the administrator through the AI Hub web interface (Settings > API Users). Each API key can be configured with:
 
-1. **First Launch**: If no admin exists, call `/auth/setup` to create one
-2. **Login**: Call `/auth/login` to get a session cookie
-3. **Subsequent Requests**: Include the `session` cookie in all requests
+- **Project**: Restricts the API user to work within a specific project workspace
+- **Profile**: Restricts the API user to use a specific agent profile
 
-### Cookie-Based Auth
+### Using Your API Key
 
-The API uses HTTP-only cookies for session management. After login, the `session` cookie is automatically included in subsequent requests.
+Include your API key in the `Authorization` header as a Bearer token:
 
----
-
-## Authentication Endpoints
-
-### GET /api/v1/auth/status
-
-Get current authentication status.
-
-**Authentication**: None required
-
-**Response**:
-```json
-{
-  "authenticated": true,
-  "setup_required": false,
-  "claude_authenticated": true,
-  "username": "admin"
-}
+```bash
+curl -X POST http://localhost:8000/api/v1/conversation/stream \
+  -H "Authorization: Bearer aih_your_api_key_here" \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "Hello, Claude!"}'
 ```
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `authenticated` | boolean | Whether user is logged into the web UI |
-| `setup_required` | boolean | Whether initial admin setup is needed |
-| `claude_authenticated` | boolean | Whether Claude CLI is authenticated |
-| `username` | string\|null | Logged-in username if authenticated |
+### Getting an API Key
 
----
+Contact your AI Hub administrator to create an API user for your application. They will provide you with:
 
-### POST /api/v1/auth/setup
+1. An API key (starts with `aih_`)
+2. Information about which project and profile your key is configured for
 
-Create the initial admin account. Only works if no admin exists.
-
-**Authentication**: None required
-
-**Request Body**:
-```json
-{
-  "username": "admin",
-  "password": "securepassword123"
-}
-```
-
-| Field | Type | Required | Constraints |
-|-------|------|----------|-------------|
-| `username` | string | Yes | 3-50 characters |
-| `password` | string | Yes | Minimum 8 characters |
-
-**Response**:
-```json
-{
-  "status": "ok",
-  "message": "Admin account created",
-  "username": "admin"
-}
-```
-
-**Errors**:
-- `403`: Admin already configured
-
----
-
-### POST /api/v1/auth/login
-
-Login and receive session cookie.
-
-**Authentication**: None required
-
-**Request Body**:
-```json
-{
-  "username": "admin",
-  "password": "yourpassword"
-}
-```
-
-**Response**:
-```json
-{
-  "status": "ok",
-  "message": "Logged in"
-}
-```
-
-**Response Headers**: Sets `session` cookie
-
-**Errors**:
-- `401`: Invalid credentials
-
----
-
-### POST /api/v1/auth/logout
-
-Logout and invalidate session.
-
-**Authentication**: Optional (clears cookie regardless)
-
-**Response**:
-```json
-{
-  "status": "ok",
-  "message": "Logged out"
-}
-```
-
----
-
-### GET /api/v1/auth/claude/status
-
-Get Claude CLI authentication status.
-
-**Authentication**: Required
-
-**Response**:
-```json
-{
-  "authenticated": true,
-  "method": "api_key"
-}
-```
-
----
-
-### GET /api/v1/auth/claude/login-instructions
-
-Get instructions for authenticating Claude CLI.
-
-**Authentication**: Required
-
-**Response**:
-```json
-{
-  "instructions": "Run 'claude login' in the container terminal..."
-}
-```
-
----
-
-### GET /api/v1/auth/diagnostics
-
-Run diagnostic checks for authentication issues.
-
-**Authentication**: Required
-
-**Response**:
-```json
-{
-  "home_env": "/home/appuser",
-  "claude_path": "/usr/local/bin/claude",
-  "claude_dir": "/home/appuser/.claude",
-  "claude_dir_exists": true,
-  "claude_credentials_exists": true,
-  "credentials_file_size": 256,
-  "process_user": "appuser",
-  "process_uid": 1000
-}
-```
+**Important**: API keys are shown only once when created. Store them securely.
 
 ---
 
 ## Query Endpoints
 
-These are the main AI interaction endpoints.
+These are the main AI interaction endpoints for your application.
 
-### POST /api/v1/query
+### POST /api/v1/conversation/stream
 
-One-shot query - stateless, creates a new session each time.
+**Recommended endpoint** - SSE streaming conversation with real-time responses.
 
-**Authentication**: Required + Claude CLI must be authenticated
+**Request**:
+```bash
+curl -X POST http://localhost:8000/api/v1/conversation/stream \
+  -H "Authorization: Bearer aih_your_api_key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt": "Write a hello world function in Python",
+    "session_id": null
+  }'
+```
 
 **Request Body**:
 ```json
 {
-  "prompt": "Write a hello world function in Python",
-  "profile": "claude-code",
-  "project": "my-project",
+  "prompt": "Your message to Claude",
+  "session_id": "optional-session-id-to-continue",
   "overrides": {
     "model": "opus",
-    "system_prompt_append": "Always include type hints",
+    "system_prompt_append": "Additional instructions",
     "max_turns": 5
   }
 }
 ```
 
-| Field | Type | Required | Default | Description |
-|-------|------|----------|---------|-------------|
-| `prompt` | string | Yes | - | The query/instruction |
-| `profile` | string | No | "claude-code" | Profile ID to use |
-| `project` | string | No | null | Project ID for working directory |
-| `overrides` | object | No | null | Runtime overrides (see below) |
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `prompt` | string | Yes | Your message/instruction to Claude |
+| `session_id` | string | No | Session ID to continue a previous conversation (null = new session) |
+| `overrides` | object | No | Runtime overrides (see below) |
 
-**Overrides Object**:
+**Note**: The `profile` and `project` fields in the request are ignored when using API key authentication. Your API key's configured project and profile are always used.
+
+**Override Options**:
 | Field | Type | Description |
 |-------|------|-------------|
-| `model` | string | Override model (claude-sonnet-4, claude-opus-4, claude-haiku-3-5) |
-| `system_prompt_append` | string | Additional instructions to append |
+| `model` | string | Override model: "sonnet", "opus", or "haiku" |
+| `system_prompt_append` | string | Additional instructions to append to system prompt |
 | `max_turns` | integer | Maximum conversation turns |
+
+**Response**: Server-Sent Events stream (see [SSE Events](#sse-event-types) section)
+
+---
+
+### POST /api/v1/conversation
+
+Non-streaming conversation (returns complete response).
+
+**Request**:
+```bash
+curl -X POST http://localhost:8000/api/v1/conversation \
+  -H "Authorization: Bearer aih_your_api_key" \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "Write a hello world function in Python"}'
+```
 
 **Response**:
 ```json
 {
   "response": "Here's a hello world function in Python:\n\n```python\ndef hello_world() -> str:\n    return \"Hello, World!\"\n```",
-  "session_id": "sess_abc123",
+  "session_id": "550e8400-e29b-41d4-a716-446655440000",
   "metadata": {
     "model": "sonnet",
     "duration_ms": 1523,
     "total_cost_usd": 0.0042,
-    "tokens_in": 150,
-    "tokens_out": 89,
     "num_turns": 1
   }
 }
@@ -238,56 +118,23 @@ One-shot query - stateless, creates a new session each time.
 
 ---
 
+### POST /api/v1/query
+
+One-shot query - creates a new session each time (no conversation continuity).
+
+**Request Body**: Same as `/conversation`
+
+**Response**: Same as `/conversation`
+
+---
+
 ### POST /api/v1/query/stream
 
 SSE streaming one-shot query.
 
-**Authentication**: Required + Claude CLI must be authenticated
-
-**Request Body**: Same as `/query`
-
-**Response**: Server-Sent Events stream (see SSE Events section)
-
----
-
-### POST /api/v1/conversation
-
-Multi-turn conversation with session persistence.
-
-**Authentication**: Required + Claude CLI must be authenticated
-
-**Request Body**:
-```json
-{
-  "prompt": "Now add error handling to that function",
-  "session_id": "sess_abc123",
-  "profile": "claude-code",
-  "project": "my-project",
-  "overrides": null
-}
-```
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `prompt` | string | Yes | The message |
-| `session_id` | string | No | Existing session to continue (null = new session) |
-| `profile` | string | No | Profile for new sessions (default: "claude-code") |
-| `project` | string | No | Project for new sessions |
-| `overrides` | object | No | Runtime overrides |
-
-**Response**: Same as `/query`
-
----
-
-### POST /api/v1/conversation/stream
-
-SSE streaming conversation.
-
-**Authentication**: Required + Claude CLI must be authenticated
-
 **Request Body**: Same as `/conversation`
 
-**Response**: Server-Sent Events stream (see SSE Events section)
+**Response**: Server-Sent Events stream
 
 ---
 
@@ -295,65 +142,49 @@ SSE streaming conversation.
 
 Interrupt an active streaming session.
 
-**Authentication**: Required
-
-**Path Parameters**:
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `session_id` | string | Session ID to interrupt |
+**Request**:
+```bash
+curl -X POST http://localhost:8000/api/v1/session/your-session-id/interrupt \
+  -H "Authorization: Bearer aih_your_api_key"
+```
 
 **Response**:
 ```json
 {
   "status": "interrupted",
-  "session_id": "sess_abc123"
+  "session_id": "your-session-id"
 }
 ```
 
 **Errors**:
-- `404`: No active session found
-
----
-
-### GET /api/v1/sessions/active
-
-List currently active streaming sessions.
-
-**Authentication**: Required
-
-**Response**:
-```json
-{
-  "active_sessions": ["sess_abc123", "sess_def456"]
-}
-```
+- `404`: No active session found with that ID
 
 ---
 
 ## SSE Event Types
 
-When using streaming endpoints, you receive Server-Sent Events:
+When using streaming endpoints (`/conversation/stream`, `/query/stream`), you receive Server-Sent Events:
 
 ### init
 Sent at stream start with session information.
 ```json
 {
   "type": "init",
-  "session_id": "sess_abc123"
+  "session_id": "550e8400-e29b-41d4-a716-446655440000"
 }
 ```
 
 ### text
-Text content chunks.
+Text content chunks (partial response).
 ```json
 {
   "type": "text",
-  "content": "Here's the "
+  "content": "Here's a "
 }
 ```
 
 ### tool_use
-Tool invocation by Claude.
+Tool invocation by Claude (file operations, bash commands, etc.).
 ```json
 {
   "type": "tool_use",
@@ -366,7 +197,7 @@ Tool invocation by Claude.
 ```
 
 ### tool_result
-Tool execution result.
+Result of a tool execution.
 ```json
 {
   "type": "tool_result",
@@ -376,335 +207,55 @@ Tool execution result.
 ```
 
 ### done
-Stream completion.
+Stream completion with final metadata.
 ```json
 {
   "type": "done",
-  "session_id": "sess_abc123",
+  "session_id": "550e8400-e29b-41d4-a716-446655440000",
   "metadata": {
     "model": "sonnet",
     "duration_ms": 5234,
     "total_cost_usd": 0.0156,
-    "tokens_in": 450,
-    "tokens_out": 312,
     "num_turns": 3
   }
 }
 ```
 
 ### interrupted
-Session was interrupted.
+Session was interrupted by user request.
 ```json
 {
-  "type": "interrupted"
+  "type": "interrupted",
+  "message": "Query was interrupted"
 }
 ```
 
 ### error
-An error occurred.
+An error occurred during processing.
 ```json
 {
   "type": "error",
-  "message": "Claude CLI not authenticated"
+  "message": "Error description"
 }
 ```
 
 ---
 
-## Profile Endpoints
-
-### GET /api/v1/profiles
-
-List all profiles.
-
-**Authentication**: Required
-
-**Response**:
-```json
-[
-  {
-    "id": "claude-code",
-    "name": "Claude Code",
-    "description": "Default coding assistant profile",
-    "config": {
-      "model": "sonnet",
-      "permission_mode": "default"
-    },
-    "is_builtin": true,
-    "created_at": "2024-01-01T00:00:00Z",
-    "updated_at": "2024-01-01T00:00:00Z"
-  }
-]
-```
-
----
-
-### GET /api/v1/profiles/{profile_id}
-
-Get a specific profile.
-
-**Authentication**: Required
-
-**Response**: Single profile object
-
-**Errors**:
-- `404`: Profile not found
-
----
-
-### POST /api/v1/profiles
-
-Create a custom profile.
-
-**Authentication**: Required
-
-**Request Body**:
-```json
-{
-  "id": "my-custom-profile",
-  "name": "My Custom Profile",
-  "description": "Specialized for frontend work",
-  "config": {
-    "model": "sonnet",
-    "permission_mode": "default",
-    "max_turns": 10,
-    "allowed_tools": ["Read", "Write", "Bash"],
-    "disallowed_tools": null,
-    "system_prompt": {
-      "type": "custom",
-      "content": "You are a frontend specialist."
-    },
-    "cwd": "/workspace/frontend",
-    "add_dirs": ["/workspace/shared"],
-    "include_partial_messages": true,
-    "continue_conversation": false,
-    "fork_session": false,
-    "setting_sources": ["user", "project"],
-    "env": {
-      "NODE_ENV": "development"
-    }
-  }
-}
-```
-
-**Profile Config Options**:
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `model` | string | "sonnet" | Model to use: sonnet, opus, haiku |
-| `permission_mode` | string | "default" | Permission mode: default, acceptEdits, plan, bypassPermissions |
-| `max_turns` | integer | null | Maximum conversation turns |
-| `allowed_tools` | string[] | null | Whitelist of allowed tools |
-| `disallowed_tools` | string[] | null | Blacklist of disallowed tools |
-| `system_prompt` | object | null | System prompt configuration |
-| `include_partial_messages` | boolean | false | Enable streaming partial messages |
-| `continue_conversation` | boolean | false | Continue most recent conversation |
-| `fork_session` | boolean | false | Fork instead of continuing when resuming |
-| `cwd` | string | null | Override working directory |
-| `add_dirs` | string[] | null | Additional accessible directories |
-| `setting_sources` | string[] | null | Settings to load: user, project, local |
-| `env` | object | null | Environment variables |
-| `extra_args` | object | null | Additional CLI arguments |
-| `max_buffer_size` | integer | null | Max bytes for CLI stdout buffer |
-| `user` | string | null | User identifier |
-
-**System Prompt Config**:
-```json
-{
-  "type": "preset",
-  "preset": "claude_code"
-}
-```
-or
-```json
-{
-  "type": "custom",
-  "content": "Your custom system prompt here",
-  "append": "Additional instructions appended to base prompt"
-}
-```
-
-**Response**: Created profile object (status 201)
-
-**Errors**:
-- `409`: Profile already exists
-
----
-
-### PUT /api/v1/profiles/{profile_id}
-
-Update a profile (cannot modify built-ins).
-
-**Authentication**: Required
-
-**Request Body**: Same as create, but all fields optional
-
-**Errors**:
-- `403`: Cannot modify built-in profiles
-- `404`: Profile not found
-
----
-
-### DELETE /api/v1/profiles/{profile_id}
-
-Delete a profile (cannot delete built-ins).
-
-**Authentication**: Required
-
-**Response**: 204 No Content
-
-**Errors**:
-- `403`: Cannot delete built-in profiles
-- `404`: Profile not found
-
----
-
-## Project Endpoints
-
-### GET /api/v1/projects
-
-List all projects.
-
-**Authentication**: Required
-
-**Response**:
-```json
-[
-  {
-    "id": "my-project",
-    "name": "My Project",
-    "description": "A sample project",
-    "path": "my-project",
-    "settings": {
-      "default_profile_id": "claude-code",
-      "custom_instructions": "Focus on TypeScript"
-    },
-    "created_at": "2024-01-01T00:00:00Z",
-    "updated_at": "2024-01-01T00:00:00Z"
-  }
-]
-```
-
----
-
-### GET /api/v1/projects/{project_id}
-
-Get a specific project.
-
-**Authentication**: Required
-
-**Errors**:
-- `404`: Project not found
-
----
-
-### POST /api/v1/projects
-
-Create a new project.
-
-**Authentication**: Required
-
-**Request Body**:
-```json
-{
-  "id": "my-new-project",
-  "name": "My New Project",
-  "description": "Project description",
-  "settings": {
-    "default_profile_id": "claude-code",
-    "custom_instructions": "Additional context for Claude"
-  }
-}
-```
-
-| Field | Type | Required | Constraints |
-|-------|------|----------|-------------|
-| `id` | string | Yes | Lowercase alphanumeric + hyphens, 1-50 chars |
-| `name` | string | Yes | 1-100 characters |
-| `description` | string | No | - |
-| `settings` | object | No | Project settings |
-
-**Project Settings**:
-| Field | Type | Description |
-|-------|------|-------------|
-| `default_profile_id` | string | Default profile for this project |
-| `custom_instructions` | string | Additional context for Claude |
-
-**Response**: Created project (status 201)
-
-**Errors**:
-- `409`: Project already exists
-
----
-
-### PUT /api/v1/projects/{project_id}
-
-Update a project.
-
-**Authentication**: Required
-
-**Request Body**: Same as create, but all fields optional
-
----
-
-### DELETE /api/v1/projects/{project_id}
-
-Delete a project (database record only, not files).
-
-**Authentication**: Required
-
-**Response**: 204 No Content
-
----
-
-### GET /api/v1/projects/{project_id}/files
-
-List files in a project directory.
-
-**Authentication**: Required
-
-**Query Parameters**:
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `path` | string | "" | Subdirectory path to list |
-
-**Response**:
-```json
-{
-  "files": [
-    {
-      "name": "src",
-      "type": "directory",
-      "size": null,
-      "path": "src"
-    },
-    {
-      "name": "README.md",
-      "type": "file",
-      "size": 1234,
-      "path": "README.md"
-    }
-  ],
-  "path": ""
-}
-```
-
----
-
-## Session Endpoints
+## Session Management
 
 ### GET /api/v1/sessions
 
-List sessions with optional filters.
+List your sessions. API users only see sessions created with their API key.
 
-**Authentication**: Required
+**Request**:
+```bash
+curl http://localhost:8000/api/v1/sessions?limit=20 \
+  -H "Authorization: Bearer aih_your_api_key"
+```
 
 **Query Parameters**:
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `project_id` | string | null | Filter by project |
-| `profile_id` | string | null | Filter by profile |
-| `status` | string | null | Filter by status (active, completed, archived) |
 | `limit` | integer | 50 | Max results (1-100) |
 | `offset` | integer | 0 | Pagination offset |
 
@@ -712,15 +263,12 @@ List sessions with optional filters.
 ```json
 [
   {
-    "id": "sess_abc123",
+    "id": "550e8400-e29b-41d4-a716-446655440000",
     "profile_id": "claude-code",
     "project_id": "my-project",
     "title": "Hello world function",
-    "sdk_session_id": "sdk_xyz789",
-    "status": "completed",
+    "status": "active",
     "total_cost_usd": 0.0156,
-    "total_tokens_in": 450,
-    "total_tokens_out": 312,
     "turn_count": 3,
     "created_at": "2024-01-01T12:00:00Z",
     "updated_at": "2024-01-01T12:05:00Z"
@@ -732,22 +280,23 @@ List sessions with optional filters.
 
 ### GET /api/v1/sessions/{session_id}
 
-Get a session with its message history.
+Get a specific session with its message history.
 
-**Authentication**: Required
+**Request**:
+```bash
+curl http://localhost:8000/api/v1/sessions/your-session-id \
+  -H "Authorization: Bearer aih_your_api_key"
+```
 
 **Response**:
 ```json
 {
-  "id": "sess_abc123",
+  "id": "550e8400-e29b-41d4-a716-446655440000",
   "profile_id": "claude-code",
   "project_id": "my-project",
   "title": "Hello world function",
-  "sdk_session_id": "sdk_xyz789",
-  "status": "completed",
+  "status": "active",
   "total_cost_usd": 0.0156,
-  "total_tokens_in": 450,
-  "total_tokens_out": 312,
   "turn_count": 3,
   "created_at": "2024-01-01T12:00:00Z",
   "updated_at": "2024-01-01T12:05:00Z",
@@ -756,18 +305,13 @@ Get a session with its message history.
       "id": 1,
       "role": "user",
       "content": "Write a hello world function",
-      "tool_name": null,
-      "tool_input": null,
-      "metadata": null,
       "created_at": "2024-01-01T12:00:00Z"
     },
     {
       "id": 2,
       "role": "assistant",
       "content": "Here's a hello world function...",
-      "tool_name": null,
-      "tool_input": null,
-      "metadata": {"model": "claude-sonnet-4"},
+      "metadata": {"model": "sonnet"},
       "created_at": "2024-01-01T12:00:05Z"
     }
   ]
@@ -776,45 +320,17 @@ Get a session with its message history.
 
 ---
 
-### PATCH /api/v1/sessions/{session_id}
-
-Update session title or status.
-
-**Authentication**: Required
-
-**Query Parameters**:
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `title` | string | New session title |
-| `status` | string | New status (active, completed, archived) |
-
-**Response**: Updated session object
-
----
-
 ### DELETE /api/v1/sessions/{session_id}
 
-Delete a session and its messages.
+Delete a session and its message history.
 
-**Authentication**: Required
+**Request**:
+```bash
+curl -X DELETE http://localhost:8000/api/v1/sessions/your-session-id \
+  -H "Authorization: Bearer aih_your_api_key"
+```
 
 **Response**: 204 No Content
-
----
-
-### POST /api/v1/sessions/{session_id}/archive
-
-Archive a session.
-
-**Authentication**: Required
-
-**Response**:
-```json
-{
-  "status": "ok",
-  "message": "Session archived"
-}
-```
 
 ---
 
@@ -822,7 +338,7 @@ Archive a session.
 
 ### GET /health
 
-Health check (no auth required).
+Health check (no authentication required).
 
 **Response**:
 ```json
@@ -830,50 +346,7 @@ Health check (no auth required).
   "status": "healthy",
   "service": "ai-hub",
   "version": "2.1.0",
-  "authenticated": false,
-  "setup_required": false,
   "claude_authenticated": true
-}
-```
-
----
-
-### GET /api/v1/health
-
-API health check (alias for /health).
-
----
-
-### GET /api/v1/version
-
-Get version information.
-
-**Authentication**: None required
-
-**Response**:
-```json
-{
-  "api_version": "2.1.0",
-  "claude_version": "1.0.0"
-}
-```
-
----
-
-### GET /api/v1/stats
-
-Get usage statistics.
-
-**Authentication**: Required
-
-**Response**:
-```json
-{
-  "total_sessions": 150,
-  "total_queries": 523,
-  "total_cost_usd": 12.45,
-  "total_tokens_in": 125000,
-  "total_tokens_out": 89000
 }
 ```
 
@@ -885,107 +358,139 @@ Get usage statistics.
 
 ```python
 import requests
+import json
 
+API_KEY = "aih_your_api_key_here"
 BASE_URL = "http://localhost:8000/api/v1"
-session = requests.Session()
 
-# Login
-response = session.post(f"{BASE_URL}/auth/login", json={
-    "username": "admin",
-    "password": "yourpassword"
-})
+headers = {
+    "Authorization": f"Bearer {API_KEY}",
+    "Content-Type": "application/json"
+}
 
-# One-shot query
-response = session.post(f"{BASE_URL}/query", json={
-    "prompt": "Write a hello world function in Python",
-    "profile": "claude-code"
-})
+# Simple query (non-streaming)
+response = requests.post(
+    f"{BASE_URL}/conversation",
+    headers=headers,
+    json={"prompt": "Write a hello world function in Python"}
+)
 result = response.json()
 print(result["response"])
 
-# Multi-turn conversation
+# Continue the conversation
 session_id = result["session_id"]
-
-response = session.post(f"{BASE_URL}/conversation", json={
-    "prompt": "Now add type hints",
-    "session_id": session_id
-})
+response = requests.post(
+    f"{BASE_URL}/conversation",
+    headers=headers,
+    json={
+        "prompt": "Now add type hints to that function",
+        "session_id": session_id
+    }
+)
+print(response.json()["response"])
 ```
 
-### Python with SSE streaming
+### Python with SSE Streaming
 
 ```python
 import requests
 import json
 
+API_KEY = "aih_your_api_key_here"
 BASE_URL = "http://localhost:8000/api/v1"
-session = requests.Session()
 
-# Login first...
+headers = {
+    "Authorization": f"Bearer {API_KEY}",
+    "Content-Type": "application/json"
+}
 
-# Stream query
-response = session.post(
+# Streaming query
+response = requests.post(
     f"{BASE_URL}/conversation/stream",
+    headers=headers,
     json={"prompt": "Write a hello world function"},
     stream=True
 )
 
+session_id = None
 for line in response.iter_lines():
     if line:
         line = line.decode('utf-8')
         if line.startswith('data: '):
             event = json.loads(line[6:])
 
-            if event['type'] == 'text':
+            if event['type'] == 'init':
+                session_id = event['session_id']
+                print(f"Session started: {session_id}")
+            elif event['type'] == 'text':
                 print(event['content'], end='', flush=True)
             elif event['type'] == 'tool_use':
                 print(f"\n[Using tool: {event['name']}]")
             elif event['type'] == 'done':
-                print(f"\n\nCompleted. Cost: ${event['metadata']['total_cost_usd']:.4f}")
+                print(f"\n\nCompleted. Cost: ${event['metadata'].get('total_cost_usd', 0):.4f}")
+
+# Continue the conversation with the same session
+response = requests.post(
+    f"{BASE_URL}/conversation/stream",
+    headers=headers,
+    json={
+        "prompt": "Add error handling",
+        "session_id": session_id
+    },
+    stream=True
+)
+# ... process stream
 ```
 
 ### JavaScript/TypeScript
 
 ```typescript
+const API_KEY = 'aih_your_api_key_here';
 const BASE_URL = 'http://localhost:8000/api/v1';
 
-// Login
-await fetch(`${BASE_URL}/auth/login`, {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  credentials: 'include',
-  body: JSON.stringify({ username: 'admin', password: 'yourpassword' })
-});
+// Non-streaming query
+async function query(prompt: string, sessionId?: string) {
+  const response = await fetch(`${BASE_URL}/conversation`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${API_KEY}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ prompt, session_id: sessionId })
+  });
 
-// Query
-const response = await fetch(`${BASE_URL}/query`, {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  credentials: 'include',
-  body: JSON.stringify({
-    prompt: 'Write a hello world function',
-    profile: 'claude-code'
-  })
-});
+  return response.json();
+}
 
-const result = await response.json();
+// Usage
+const result = await query('Write a hello world function');
 console.log(result.response);
+
+// Continue conversation
+const followUp = await query('Add type hints', result.session_id);
+console.log(followUp.response);
 ```
 
 ### JavaScript SSE Streaming
 
 ```typescript
+const API_KEY = 'aih_your_api_key_here';
+const BASE_URL = 'http://localhost:8000/api/v1';
+
 async function streamQuery(prompt: string, sessionId?: string) {
   const response = await fetch(`${BASE_URL}/conversation/stream`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    credentials: 'include',
+    headers: {
+      'Authorization': `Bearer ${API_KEY}`,
+      'Content-Type': 'application/json'
+    },
     body: JSON.stringify({ prompt, session_id: sessionId })
   });
 
   const reader = response.body?.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
+  let newSessionId: string | undefined;
 
   while (true) {
     const { done, value } = await reader!.read();
@@ -1001,7 +506,7 @@ async function streamQuery(prompt: string, sessionId?: string) {
 
         switch (event.type) {
           case 'init':
-            console.log('Session:', event.session_id);
+            newSessionId = event.session_id;
             break;
           case 'text':
             process.stdout.write(event.content);
@@ -1012,35 +517,57 @@ async function streamQuery(prompt: string, sessionId?: string) {
           case 'done':
             console.log(`\nCost: $${event.metadata.total_cost_usd}`);
             break;
+          case 'error':
+            console.error(`Error: ${event.message}`);
+            break;
         }
       }
     }
   }
+
+  return newSessionId;
 }
+
+// Usage
+const sessionId = await streamQuery('Write a hello world function');
+await streamQuery('Add error handling', sessionId);
 ```
 
 ### cURL Examples
 
 ```bash
-# Login
-curl -X POST http://localhost:8000/api/v1/auth/login \
+# Simple query
+curl -X POST http://localhost:8000/api/v1/conversation \
+  -H "Authorization: Bearer aih_your_api_key" \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"yourpassword"}' \
-  -c cookies.txt
+  -d '{"prompt": "Write hello world in Python"}'
 
-# One-shot query
-curl -X POST http://localhost:8000/api/v1/query \
+# Streaming query
+curl -X POST http://localhost:8000/api/v1/conversation/stream \
+  -H "Authorization: Bearer aih_your_api_key" \
   -H "Content-Type: application/json" \
-  -b cookies.txt \
-  -d '{"prompt":"Write hello world in Python","profile":"claude-code"}'
+  -d '{"prompt": "Write hello world in Python"}'
+
+# Continue a conversation
+curl -X POST http://localhost:8000/api/v1/conversation \
+  -H "Authorization: Bearer aih_your_api_key" \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "Add type hints", "session_id": "your-session-id"}'
 
 # List sessions
-curl http://localhost:8000/api/v1/sessions?limit=10 \
-  -b cookies.txt
+curl http://localhost:8000/api/v1/sessions \
+  -H "Authorization: Bearer aih_your_api_key"
 
-# Get session with messages
-curl http://localhost:8000/api/v1/sessions/sess_abc123 \
-  -b cookies.txt
+# Get session details
+curl http://localhost:8000/api/v1/sessions/your-session-id \
+  -H "Authorization: Bearer aih_your_api_key"
+
+# Interrupt active session
+curl -X POST http://localhost:8000/api/v1/session/your-session-id/interrupt \
+  -H "Authorization: Bearer aih_your_api_key"
+
+# Health check (no auth needed)
+curl http://localhost:8000/health
 ```
 
 ---
@@ -1059,25 +586,67 @@ All errors follow this format:
 
 | Code | Description |
 |------|-------------|
-| 400 | Bad Request - Invalid parameters |
-| 401 | Unauthorized - Not logged in or Claude not authenticated |
-| 403 | Forbidden - Cannot modify built-in resources |
-| 404 | Not Found - Resource doesn't exist |
-| 409 | Conflict - Resource already exists |
+| 400 | Bad Request - Invalid parameters or missing required fields |
+| 401 | Unauthorized - Invalid or missing API key |
+| 404 | Not Found - Session or resource doesn't exist |
 | 500 | Internal Server Error - Server-side failure |
+
+### Common Errors
+
+| Error | Cause | Solution |
+|-------|-------|----------|
+| "Not authenticated" | Missing or invalid API key | Check your Authorization header |
+| "Claude CLI not authenticated" | Server's Claude connection issue | Contact administrator |
+| "Session not found" | Invalid session_id | Use a valid session ID or omit for new session |
+| "Profile not found" | Invalid profile configured | Contact administrator to fix API user config |
+| "Project not found" | Invalid project configured | Contact administrator to fix API user config |
 
 ---
 
-## Security Notes
+## Best Practices
 
-1. **Session Cookies**: HTTP-only, same-site=lax
-2. **Claude Authentication**: Requires running `claude login` in the container
-3. **Project Paths**: Validated to prevent directory traversal
-4. **Built-in Profiles**: Cannot be modified or deleted
-5. **All queries include security instructions** in system prompts
+### Session Management
+
+1. **Save session IDs**: Store the `session_id` from responses to continue conversations
+2. **New sessions**: Omit `session_id` or set it to `null` for fresh conversations
+3. **Clean up**: Delete old sessions you no longer need
+
+### Streaming
+
+1. **Prefer streaming**: Use `/conversation/stream` for better user experience
+2. **Handle all event types**: Process `text`, `tool_use`, `done`, and `error` events
+3. **Buffer handling**: SSE events may arrive in chunks, buffer partial lines
+
+### Error Handling
+
+1. **Retry on 5xx**: Server errors may be transient
+2. **Don't retry on 4xx**: Client errors require fixing the request
+3. **Check health**: Use `/health` endpoint to verify server status
+
+### Security
+
+1. **Keep keys secret**: Never commit API keys to version control
+2. **Use environment variables**: Store API keys in environment variables
+3. **Rotate keys**: Request new keys if you suspect compromise
 
 ---
 
 ## Rate Limits
 
-Currently no rate limiting is enforced. For production deployments, consider adding rate limiting at the reverse proxy level.
+Currently no rate limiting is enforced at the API level. However:
+
+- Claude API has its own rate limits
+- Large queries consume more resources
+- Consider implementing client-side throttling for high-volume applications
+
+---
+
+## Workspace Isolation
+
+Each API user operates in an isolated workspace:
+
+- **Project restriction**: Your API key may be restricted to a specific project directory
+- **Profile restriction**: Your API key may be required to use a specific agent profile
+- **Session isolation**: Sessions are tagged with your API user ID
+
+This ensures applications don't interfere with each other and provides accountability for API usage.
