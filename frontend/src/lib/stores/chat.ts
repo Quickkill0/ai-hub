@@ -131,6 +131,14 @@ function createChatStore() {
 
 					switch (chunkType) {
 						case 'text': {
+							// Mark any streaming tool_use messages as complete when we receive text
+							// This handles the case where backend doesn't send tool_result events
+							for (let i = 0; i < messages.length; i++) {
+								if (messages[i].type === 'tool_use' && messages[i].streaming) {
+									messages[i] = { ...messages[i], streaming: false };
+								}
+							}
+
 							// Find the LAST streaming text message
 							const lastStreamingTextIndex = messages.findLastIndex(
 								(m) => m.type === 'text' && m.role === 'assistant' && m.streaming
@@ -653,6 +661,14 @@ function createChatStore() {
 
 				switch (event.type) {
 					case 'text': {
+						// Mark any streaming tool_use messages as complete when we receive text
+						// This handles the case where backend doesn't send tool_result events
+						for (let i = 0; i < messages.length; i++) {
+							if (messages[i].type === 'tool_use' && messages[i].streaming) {
+								messages[i] = { ...messages[i], streaming: false };
+							}
+						}
+
 						// Find the LAST streaming text message (not the original msgId)
 						// This ensures text goes to the correct message after tool results
 						const lastStreamingTextIndex = messages.findLastIndex(
