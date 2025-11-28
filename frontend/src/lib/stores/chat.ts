@@ -124,27 +124,32 @@ function createChatStore() {
 			case 'stream_chunk': {
 				// Streaming chunk from another device
 				const chunkType = event.data.chunk_type as string;
-				const msgId = event.data.message_id as string;
 
 				update((s) => {
 					const messages = [...s.messages];
-					const textMsgIndex = messages.findIndex((m) => m.id === msgId);
 
 					switch (chunkType) {
 						case 'text': {
-							if (textMsgIndex !== -1) {
-								const msg = { ...messages[textMsgIndex] };
+							// Find the LAST streaming text message
+							const lastStreamingTextIndex = messages.findLastIndex(
+								(m) => m.type === 'text' && m.role === 'assistant' && m.streaming
+							);
+							if (lastStreamingTextIndex !== -1) {
+								const msg = { ...messages[lastStreamingTextIndex] };
 								msg.content += event.data.content as string;
-								messages[textMsgIndex] = msg;
+								messages[lastStreamingTextIndex] = msg;
 							}
 							break;
 						}
 
 						case 'tool_use': {
-							// Mark current text message as not streaming if it has content
-							if (textMsgIndex !== -1 && messages[textMsgIndex].content) {
-								messages[textMsgIndex] = {
-									...messages[textMsgIndex],
+							// Find and mark current streaming text message as not streaming
+							const currentTextIndex = messages.findLastIndex(
+								(m) => m.type === 'text' && m.role === 'assistant' && m.streaming
+							);
+							if (currentTextIndex !== -1 && messages[currentTextIndex].content) {
+								messages[currentTextIndex] = {
+									...messages[currentTextIndex],
 									streaming: false
 								};
 							}
@@ -618,25 +623,30 @@ function createChatStore() {
 			update(s => {
 				const messages = [...s.messages];
 
-				// Find the current text message or last message
-				const textMsgIndex = messages.findIndex(m => m.id === msgId);
-
 				switch (event.type) {
 					case 'text': {
-						// Append text to the current text message
-						if (textMsgIndex !== -1) {
-							const msg = { ...messages[textMsgIndex] };
+						// Find the LAST streaming text message (not the original msgId)
+						// This ensures text goes to the correct message after tool results
+						const lastStreamingTextIndex = messages.findLastIndex(
+							m => m.type === 'text' && m.role === 'assistant' && m.streaming
+						);
+
+						if (lastStreamingTextIndex !== -1) {
+							const msg = { ...messages[lastStreamingTextIndex] };
 							msg.content += event.content as string;
-							messages[textMsgIndex] = msg;
+							messages[lastStreamingTextIndex] = msg;
 						}
 						break;
 					}
 
 					case 'tool_use': {
-						// Mark current text message as not streaming if it has content
-						if (textMsgIndex !== -1 && messages[textMsgIndex].content) {
-							messages[textMsgIndex] = {
-								...messages[textMsgIndex],
+						// Find and mark current streaming text message as not streaming
+						const currentTextIndex = messages.findLastIndex(
+							m => m.type === 'text' && m.role === 'assistant' && m.streaming
+						);
+						if (currentTextIndex !== -1 && messages[currentTextIndex].content) {
+							messages[currentTextIndex] = {
+								...messages[currentTextIndex],
 								streaming: false
 							};
 						}

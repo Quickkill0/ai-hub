@@ -57,12 +57,38 @@
 	let newProjectName = '';
 	let newProjectDescription = '';
 
-	onMount(async () => {
-		await Promise.all([
+	onMount(() => {
+		// Load initial data
+		Promise.all([
 			chat.loadProfiles(),
 			chat.loadSessions(),
 			chat.loadProjects()
 		]);
+
+		// Handle page visibility changes (user leaving and returning)
+		// This reconnects to the session when the user returns to the page
+		const handleVisibilityChange = () => {
+			if (document.visibilityState === 'visible') {
+				// Use get() to access store value synchronously
+				const sessionId = $currentSessionId;
+				if (sessionId) {
+					console.log('[UI] Page became visible, refreshing session state...');
+					// Clear any network errors from when the page was in background
+					chat.clearError();
+					// Reload the current session to get latest messages
+					chat.loadSession(sessionId);
+					// Also refresh sessions list in case title changed
+					chat.loadSessions();
+				}
+			}
+		};
+
+		document.addEventListener('visibilitychange', handleVisibilityChange);
+
+		// Cleanup on unmount
+		return () => {
+			document.removeEventListener('visibilitychange', handleVisibilityChange);
+		};
 	});
 
 	// Check if user is near the bottom of scroll area
