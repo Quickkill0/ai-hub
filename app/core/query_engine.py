@@ -195,10 +195,15 @@ async def execute_query(
         resume_id = session.get("sdk_session_id")
     else:
         session_id = str(uuid.uuid4())
+        # Generate title from first message (truncate to 50 chars)
+        title = prompt[:50].strip()
+        if len(prompt) > 50:
+            title += "..."
         session = database.create_session(
             session_id=session_id,
             profile_id=profile_id,
-            project_id=project_id
+            project_id=project_id,
+            title=title
         )
         resume_id = None
 
@@ -305,6 +310,7 @@ async def stream_query(
             return
 
     # Get or create session
+    is_new_session = False
     if session_id:
         session = database.get_session(session_id)
         if not session:
@@ -314,13 +320,19 @@ async def stream_query(
         logger.info(f"Resuming session {session_id} with SDK session {resume_id}")
     else:
         session_id = str(uuid.uuid4())
+        # Generate title from first message (truncate to 50 chars)
+        title = prompt[:50].strip()
+        if len(prompt) > 50:
+            title += "..."
         session = database.create_session(
             session_id=session_id,
             profile_id=profile_id,
-            project_id=project_id
+            project_id=project_id,
+            title=title
         )
         resume_id = None
-        logger.info(f"Created new session {session_id}")
+        is_new_session = True
+        logger.info(f"Created new session {session_id} with title: {title}")
 
     # Clean up any existing active client for this session before starting
     if session_id in _active_clients:
