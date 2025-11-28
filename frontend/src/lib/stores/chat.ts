@@ -323,16 +323,49 @@ function createChatStore() {
 					streaming?: boolean;
 				}> | undefined;
 
+				console.log('[Chat] State event: is_streaming=', isStreaming, 'buffered messages:', streamingMessages?.length || 0);
+
 				update((s) => {
 					// If session is streaming and we have buffered messages, merge them
-					// This handles both:
-					// 1. Reconnecting to an active stream on another device
-					// 2. Late-joining our own stream after WebSocket connects
 					if (isStreaming && streamingMessages && streamingMessages.length > 0) {
-						// Check if we already have streaming assistant messages (avoid duplicates)
-						const hasStreamingAssistant = s.messages.some(m => m.streaming && m.role === 'assistant');
-						if (!hasStreamingAssistant) {
-							console.log('[Chat] State event: session is streaming, appending buffered messages:', streamingMessages.length);
+						const messages = [...s.messages];
+
+						// Find existing streaming assistant message
+						const streamingMsgIndex = messages.findIndex(m => m.streaming && m.role === 'assistant');
+
+						if (streamingMsgIndex !== -1) {
+							// Merge buffered content into existing streaming message
+							console.log('[Chat] Merging buffered content into existing streaming message');
+							for (const sm of streamingMessages) {
+								if (sm.type === 'text' && sm.content) {
+									// Append text content
+									messages[streamingMsgIndex] = {
+										...messages[streamingMsgIndex],
+										content: (messages[streamingMsgIndex].content || '') + sm.content
+									};
+								} else if (sm.type === 'tool_use') {
+									// Add tool use message
+									messages.push({
+										id: `tool-${Date.now()}-${sm.tool_id}`,
+										role: 'assistant' as const,
+										content: '',
+										type: 'tool_use' as const,
+										toolName: sm.tool_name,
+										toolId: sm.tool_id,
+										toolInput: sm.tool_input,
+										streaming: sm.streaming ?? true
+									});
+								}
+							}
+							return {
+								...s,
+								messages,
+								isStreaming: true,
+								isRemoteStreaming: isStreaming
+							};
+						} else {
+							// No existing streaming message - create new ones from buffer
+							console.log('[Chat] No streaming message found, creating from buffer');
 							const newMsgs = streamingMessages.map((sm, i) => ({
 								id: `stream-${Date.now()}-${i}`,
 								role: sm.role as 'user' | 'assistant',
@@ -595,12 +628,24 @@ function createChatStore() {
 
 				const result = await response.json();
 				const newSessionId = result.session_id;
+				const streamingMsgId = result.message_id;
 
-				// Update session ID and connect to sync for this session
-				update(s => ({ ...s, sessionId: newSessionId }));
+				// Update session ID and add assistant placeholder immediately
+				// This ensures we have a streaming message ready for chunks
+				update(s => ({
+					...s,
+					sessionId: newSessionId,
+					messages: [...s.messages, {
+						id: streamingMsgId,
+						role: 'assistant' as const,
+						content: '',
+						type: 'text' as const,
+						streaming: true
+					}]
+				}));
 
 				// Connect to WebSocket for streaming updates
-				// The sync handler will receive stream_start, stream_chunk, stream_end events
+				// The sync handler will receive stream_chunk, stream_end events
 				await connectSync(newSessionId);
 
 				// Reload sessions list to show new session

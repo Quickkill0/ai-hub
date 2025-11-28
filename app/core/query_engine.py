@@ -626,7 +626,8 @@ async def _run_background_query(
     overrides: Optional[Dict[str, Any]],
     resume_id: Optional[str],
     device_id: Optional[str],
-    api_user_id: Optional[str]
+    api_user_id: Optional[str],
+    message_id: Optional[str] = None
 ):
     """
     Run a streaming query in the background, independent of HTTP connection.
@@ -710,15 +711,18 @@ async def _run_background_query(
     state.is_streaming = True
     state.last_activity = datetime.now()
 
-    # Generate a message ID for streaming sync
-    assistant_msg_id = f"streaming-{session_id}-{datetime.now().timestamp()}"
+    # Use provided message_id or generate a new one
+    # If message_id is provided, stream_start was already broadcast by start_background_query
+    assistant_msg_id = message_id or f"streaming-{session_id}-{datetime.now().timestamp()}"
 
-    # Broadcast stream start to all devices (including the one that initiated)
-    await sync_engine.broadcast_stream_start(
-        session_id=session_id,
-        message_id=assistant_msg_id,
-        source_device_id=None  # Don't exclude any device - all should see it
-    )
+    # Only broadcast stream_start if we generated a new message_id
+    # (i.e., if message_id wasn't provided by start_background_query)
+    if not message_id:
+        await sync_engine.broadcast_stream_start(
+            session_id=session_id,
+            message_id=assistant_msg_id,
+            source_device_id=None  # Don't exclude any device - all should see it
+        )
 
     # Log stream start for polling fallback
     database.add_sync_log(
@@ -914,6 +918,18 @@ async def start_background_query(
         )
         logger.info(f"Created new session {session_id} with title: {title}")
 
+    # Generate a message ID for streaming
+    assistant_msg_id = f"streaming-{session_id}-{datetime.now().timestamp()}"
+
+    # Broadcast stream_start BEFORE returning so the WebSocket can pick it up
+    # This ensures is_streaming=true and buffer exists when client connects
+    await sync_engine.broadcast_stream_start(
+        session_id=session_id,
+        message_id=assistant_msg_id,
+        source_device_id=None  # Don't exclude any device - all should see it
+    )
+    logger.info(f"[Background] Broadcast stream_start for session {session_id}")
+
     # Start background task
     task = asyncio.create_task(
         _run_background_query(
@@ -924,7 +940,8 @@ async def start_background_query(
             overrides=overrides,
             resume_id=resume_id,
             device_id=device_id,
-            api_user_id=api_user_id
+            api_user_id=api_user_id,
+            message_id=assistant_msg_id
         )
     )
 
@@ -938,7 +955,8 @@ async def start_background_query(
 
     return {
         "session_id": session_id,
-        "status": "started"
+        "status": "started",
+        "message_id": assistant_msg_id
     }
 
 
