@@ -1,11 +1,18 @@
 """
 Query engine for executing Claude queries with profiles
+
+Based on patterns from Anvil's SessionManager:
+- Keep SDK clients connected for the lifetime of a session
+- Don't disconnect after every query (causes async context issues)
+- Create new client with 'resume' option when resuming after app restart
 """
 
 import logging
 import uuid
 import asyncio
 from typing import Optional, Dict, Any, AsyncGenerator
+from dataclasses import dataclass, field
+from datetime import datetime
 
 from claude_agent_sdk import query, ClaudeAgentOptions, ClaudeSDKClient
 from claude_agent_sdk import (
@@ -19,21 +26,39 @@ from app.core.profiles import get_profile_or_builtin
 
 logger = logging.getLogger(__name__)
 
-# Track active streaming clients for interrupt support
-# Key is session_id, value is the client
-_active_clients: Dict[str, ClaudeSDKClient] = {}
 
-async def cleanup_stale_clients():
-    """Clean up any stale client connections"""
-    stale_ids = list(_active_clients.keys())
+@dataclass
+class SessionState:
+    """Track state for an active SDK session"""
+    client: ClaudeSDKClient
+    sdk_session_id: Optional[str] = None
+    is_connected: bool = False
+    is_streaming: bool = False
+    last_activity: datetime = field(default_factory=datetime.now)
+
+
+# Track active sessions - key is our session_id, value is SessionState
+_active_sessions: Dict[str, SessionState] = {}
+
+
+async def cleanup_stale_sessions(max_age_seconds: int = 3600):
+    """Clean up sessions that have been inactive for too long"""
+    now = datetime.now()
+    stale_ids = []
+
+    for session_id, state in _active_sessions.items():
+        age = (now - state.last_activity).total_seconds()
+        if not state.is_streaming and age > max_age_seconds:
+            stale_ids.append(session_id)
+
     for session_id in stale_ids:
-        client = _active_clients.pop(session_id, None)
-        if client:
+        state = _active_sessions.pop(session_id, None)
+        if state and state.client:
             try:
-                await client.disconnect()
-                logger.info(f"Cleaned up stale client for session {session_id}")
+                await state.client.disconnect()
+                logger.info(f"Cleaned up stale session {session_id}")
             except Exception as e:
-                logger.warning(f"Error cleaning up stale client {session_id}: {e}")
+                logger.warning(f"Error cleaning up stale session {session_id}: {e}")
 
 
 # Security restrictions that apply to all requests
@@ -293,7 +318,14 @@ async def stream_query(
     overrides: Optional[Dict[str, Any]] = None,
     session_id: Optional[str] = None
 ) -> AsyncGenerator[Dict[str, Any], None]:
-    """Execute a streaming query using ClaudeSDKClient for interrupt support"""
+    """
+    Execute a streaming query using ClaudeSDKClient.
+
+    Following Anvil's SessionManager pattern:
+    - Keep clients connected for session lifetime
+    - Don't disconnect after each query (causes async context issues)
+    - Reuse existing client if available, create new one with 'resume' if needed
+    """
 
     # Get profile
     profile = get_profile_or_builtin(profile_id)
@@ -309,8 +341,10 @@ async def stream_query(
             yield {"type": "error", "message": f"Project not found: {project_id}"}
             return
 
-    # Get or create session
+    # Get or create session in database
     is_new_session = False
+    resume_id = None
+
     if session_id:
         session = database.get_session(session_id)
         if not session:
@@ -330,18 +364,8 @@ async def stream_query(
             project_id=project_id,
             title=title
         )
-        resume_id = None
         is_new_session = True
         logger.info(f"Created new session {session_id} with title: {title}")
-
-    # Clean up any existing active client for this session before starting
-    if session_id in _active_clients:
-        old_client = _active_clients.pop(session_id)
-        try:
-            await old_client.disconnect()
-            logger.info(f"Cleaned up old client for session {session_id}")
-        except Exception as e:
-            logger.warning(f"Error cleaning up old client: {e}")
 
     # Store user message
     database.add_session_message(
@@ -361,32 +385,61 @@ async def stream_query(
     # Yield init event
     yield {"type": "init", "session_id": session_id}
 
-    # Execute query using ClaudeSDKClient for interrupt support
+    # For now, always create a new client for each query.
+    # This is simpler and avoids issues with reusing clients that may be in an
+    # inconsistent state. The key fix from Anvil is to NOT disconnect after each
+    # query (which we do in the finally block now).
+    #
+    # Clean up any existing state for this session
+    state = _active_sessions.get(session_id)
+    if state:
+        logger.info(f"Cleaning up existing state for session {session_id}")
+        try:
+            await state.client.disconnect()
+        except Exception:
+            pass
+        del _active_sessions[session_id]
+
+    # Always create new client
+    logger.info(f"Creating new ClaudeSDKClient for session {session_id} (resume={resume_id is not None})")
+    client = ClaudeSDKClient(options=options)
+
+    # Connect without timeout - Anvil doesn't use timeout for connect()
+    try:
+        await client.connect()
+        logger.info(f"Connected to Claude SDK for session {session_id}")
+    except Exception as e:
+        logger.error(f"Failed to connect to Claude SDK for session {session_id}: {e}")
+        yield {"type": "error", "message": f"Connection failed: {e}"}
+        return
+
+    state = SessionState(
+        client=client,
+        sdk_session_id=resume_id,
+        is_connected=True
+    )
+    _active_sessions[session_id] = state
+
+    # Mark as streaming
+    state.is_streaming = True
+    state.last_activity = datetime.now()
+
+    # Execute query
     response_text = []
     metadata = {}
     sdk_session_id = resume_id  # Start with existing SDK session ID if resuming
-    client = None
     interrupted = False
 
     try:
-        client = ClaudeSDKClient(options=options)
-        _active_clients[session_id] = client
+        await state.client.query(prompt)
 
-        # Connect with timeout
-        try:
-            await asyncio.wait_for(client.connect(), timeout=30.0)
-        except asyncio.TimeoutError:
-            logger.error(f"Timeout connecting to Claude SDK for session {session_id}")
-            yield {"type": "error", "message": "Connection timeout. Please try again."}
-            return
-
-        await client.query(prompt)
-
-        async for message in client.receive_response():
+        async for message in state.client.receive_response():
             if isinstance(message, SystemMessage):
-                # session_id comes in warmup message data after first query
+                # session_id comes in init message data after first query
                 if message.subtype == "init" and "session_id" in message.data:
                     sdk_session_id = message.data["session_id"]
+                    state.sdk_session_id = sdk_session_id
+                    logger.info(f"Captured SDK session ID: {sdk_session_id}")
 
             elif isinstance(message, AssistantMessage):
                 for block in message.content:
@@ -424,27 +477,26 @@ async def stream_query(
         yield {"type": "interrupted", "message": "Query was interrupted"}
 
     except Exception as e:
-        logger.error(f"Stream query error: {e}")
+        logger.error(f"Stream query error for session {session_id}: {e}")
+        # Mark client as disconnected on error
+        state.is_connected = False
         yield {"type": "error", "message": str(e)}
 
     finally:
-        # Clean up client
-        if session_id in _active_clients:
-            del _active_clients[session_id]
-        if client:
-            try:
-                await client.disconnect()
-            except Exception:
-                pass
+        # Mark as not streaming - but DON'T disconnect the client
+        # Following Anvil's pattern: keep client connected for session lifetime
+        state.is_streaming = False
+        state.last_activity = datetime.now()
 
-    # Update session - always update cost/turns, update sdk_session_id if we got a new one
-    database.update_session(
-        session_id=session_id,
-        sdk_session_id=sdk_session_id,  # May be existing or new from init message
-        cost_increment=metadata.get("total_cost_usd", 0),
-        turn_increment=metadata.get("num_turns", 0)
-    )
-    logger.info(f"Updated session {session_id}, sdk_session_id={sdk_session_id}")
+    # Update session in database
+    if sdk_session_id:
+        database.update_session(
+            session_id=session_id,
+            sdk_session_id=sdk_session_id,
+            cost_increment=metadata.get("total_cost_usd", 0),
+            turn_increment=metadata.get("num_turns", 0)
+        )
+        logger.info(f"Updated session {session_id}, sdk_session_id={sdk_session_id}")
 
     # Store assistant response
     full_response = "\n".join(response_text)
@@ -479,10 +531,10 @@ async def stream_query(
 
 async def interrupt_session(session_id: str) -> bool:
     """Interrupt an active streaming session"""
-    if session_id in _active_clients:
-        client = _active_clients[session_id]
+    state = _active_sessions.get(session_id)
+    if state and state.is_connected and state.is_streaming:
         try:
-            await client.interrupt()
+            await state.client.interrupt()
             logger.info(f"Interrupted session {session_id}")
             return True
         except Exception as e:
@@ -492,5 +544,18 @@ async def interrupt_session(session_id: str) -> bool:
 
 
 def get_active_sessions() -> list:
-    """Get list of active streaming session IDs"""
-    return list(_active_clients.keys())
+    """Get list of active session IDs (connected clients)"""
+    return [
+        session_id
+        for session_id, state in _active_sessions.items()
+        if state.is_connected
+    ]
+
+
+def get_streaming_sessions() -> list:
+    """Get list of currently streaming session IDs"""
+    return [
+        session_id
+        for session_id, state in _active_sessions.items()
+        if state.is_streaming
+    ]
