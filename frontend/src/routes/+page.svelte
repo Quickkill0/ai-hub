@@ -596,40 +596,70 @@
 											</div>
 										{/if}
 									</div>
-								<!-- Tool use message -->
+								<!-- Tool use message - collapsible card -->
 								{:else if message.type === 'tool_use'}
-									<div class="w-full max-w-[85%] sm:max-w-[75%] card p-3 sm:p-4 bg-blue-900/20 border-blue-500/30">
-										<div class="flex items-center gap-2 text-sm text-blue-300">
-											<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-												<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-												<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-											</svg>
-											<span class="font-medium">Tool: {message.toolName}</span>
-											{#if message.streaming}
-												<span class="ml-auto text-xs text-blue-400 animate-pulse">Running...</span>
+									<div class="w-full max-w-[85%] sm:max-w-[75%] border border-[var(--color-border)] rounded-lg overflow-hidden">
+										<details class="group">
+											<summary class="px-3 py-2 bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)] cursor-pointer flex items-center justify-between transition-colors">
+												<div class="flex items-center gap-2 text-sm">
+													{#if message.streaming}
+														<svg class="w-4 h-4 text-blue-400 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+															<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+														</svg>
+													{:else}
+														<svg class="w-4 h-4 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+															<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+														</svg>
+													{/if}
+													<svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+														<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+														<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+													</svg>
+													<span class="font-medium text-gray-200">{message.toolName}</span>
+													<span class="text-gray-500">•</span>
+													<span class="text-xs {message.streaming ? 'text-blue-400' : 'text-green-400'}">
+														{message.streaming ? 'Running...' : 'Complete'}
+													</span>
+												</div>
+												<svg class="w-4 h-4 text-gray-400 transition-transform group-open:rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+													<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+												</svg>
+											</summary>
+											{#if message.toolInput}
+												<div class="px-3 py-2 bg-[var(--color-bg)] border-t border-[var(--color-border)]">
+													<div class="text-xs text-gray-500 mb-1">Input:</div>
+													<pre class="text-xs overflow-x-auto max-h-40">{JSON.stringify(message.toolInput, null, 2)}</pre>
+												</div>
 											{/if}
-										</div>
-										{#if message.toolInput}
-											<details class="mt-2">
-												<summary class="text-xs text-gray-400 cursor-pointer hover:text-gray-300">Show input</summary>
-												<pre class="mt-1 text-xs overflow-x-auto bg-[var(--color-bg)] rounded p-2">{JSON.stringify(message.toolInput, null, 2)}</pre>
-											</details>
-										{/if}
+										</details>
 									</div>
-								<!-- Tool result message -->
+								<!-- Tool result message - collapsible card -->
 								{:else if message.type === 'tool_result'}
-									<div class="w-full max-w-[85%] sm:max-w-[75%] card p-3 sm:p-4 bg-green-900/20 border-green-500/30">
-										<div class="flex items-center gap-2 text-sm text-green-300 mb-2">
-											<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-												<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-											</svg>
-											<span class="font-medium">Result: {message.toolName}</span>
-										</div>
-										<pre class="text-xs overflow-x-auto max-h-60 bg-[var(--color-bg)] rounded p-2">{message.content}</pre>
+									<div class="w-full max-w-[85%] sm:max-w-[75%] border border-[var(--color-border)] rounded-lg overflow-hidden">
+										<details class="group">
+											<summary class="px-3 py-2 bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)] cursor-pointer flex items-center justify-between transition-colors">
+												<div class="flex items-center gap-2 text-sm">
+													<svg class="w-4 h-4 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+														<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+													</svg>
+													<span class="font-medium text-gray-200">Result</span>
+													<span class="text-gray-500">•</span>
+													<span class="text-xs text-gray-400">{message.toolName}</span>
+													<span class="text-gray-500">•</span>
+													<span class="text-xs text-green-400">Success</span>
+												</div>
+												<svg class="w-4 h-4 text-gray-400 transition-transform group-open:rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+													<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+												</svg>
+											</summary>
+											<div class="px-3 py-2 bg-[var(--color-bg)] border-t border-[var(--color-border)]">
+												<pre class="text-xs overflow-x-auto max-h-60">{message.content}</pre>
+											</div>
+										</details>
 
 										<!-- Metadata - only show on last message in group -->
 										{#if message.metadata && message.isLastInGroup}
-											<div class="mt-3 pt-2 border-t border-[var(--color-border)] text-xs text-gray-500 flex flex-wrap gap-2 sm:gap-4">
+											<div class="px-3 py-2 border-t border-[var(--color-border)] text-xs text-gray-500 flex flex-wrap gap-2 sm:gap-4">
 												{#if message.metadata.total_cost_usd}
 													<span>Cost: {formatCost(message.metadata.total_cost_usd as number)}</span>
 												{/if}
