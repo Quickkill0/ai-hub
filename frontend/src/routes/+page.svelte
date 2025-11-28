@@ -96,7 +96,7 @@
 						for (let i = 0; i < retries; i++) {
 							const success = await chat.loadSession(sessionId);
 							if (success) {
-								console.log('[UI] Session loaded successfully');
+								console.log('[UI] Session loaded successfully with streaming messages merged');
 								return true;
 							}
 							console.warn(`[UI] Load attempt ${i + 1} failed, ${retries - i - 1} retries left`);
@@ -108,10 +108,12 @@
 						return false;
 					};
 
-					// Load with retry
-					loadWithRetry();
+					// Load with retry - await to ensure streaming messages are fetched
+					await loadWithRetry();
 					// Also refresh sessions list in case title changed
-					chat.loadSessions();
+					await chat.loadSessions();
+					// Refresh active sessions to show streaming indicator
+					await chat.loadActiveSessions();
 
 					// Keep clearing errors for a grace period (old SSE errors may come in async)
 					const clearErrorsInterval = setInterval(() => {
