@@ -648,9 +648,9 @@
 								<div>
 									<label class="block text-sm text-gray-400 mb-1">Model</label>
 									<select bind:value={profileForm.model} class="input">
-										<option value="claude-sonnet-4">Claude Sonnet 4</option>
-										<option value="claude-opus-4">Claude Opus 4</option>
-										<option value="claude-haiku-3-5">Claude Haiku 3.5</option>
+										<option value="claude-sonnet-4">Claude Sonnet</option>
+										<option value="claude-opus-4">Claude Opus</option>
+										<option value="claude-haiku-3-5">Claude Haiku</option>
 									</select>
 								</div>
 								<div>
