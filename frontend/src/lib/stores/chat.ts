@@ -303,22 +303,49 @@ function createChatStore() {
 			case 'state': {
 				// Initial state from WebSocket connection
 				const isStreaming = event.data.is_streaming as boolean;
-				const messages = event.data.messages as SessionMessage[];
+				const dbMessages = event.data.messages as SessionMessage[];
+				const streamingMessages = event.data.streaming_messages as Array<{
+					type: string;
+					role: string;
+					content: string;
+					tool_name?: string;
+					tool_id?: string;
+					tool_input?: Record<string, unknown>;
+					streaming?: boolean;
+				}> | undefined;
 
-				if (messages && messages.length > 0) {
-					const chatMessages: ChatMessage[] = messages.map((m, i) => ({
-						id: `msg-${i}`,
-						role: m.role as 'user' | 'assistant',
-						content: m.content,
-						metadata: m.metadata
-					}));
+				// Start with messages from database
+				const chatMessages: ChatMessage[] = (dbMessages || []).map((m, i) => ({
+					id: `msg-${i}`,
+					role: m.role as 'user' | 'assistant',
+					content: m.content,
+					type: m.role === 'assistant' ? 'text' as MessageType : undefined,
+					metadata: m.metadata,
+					streaming: false
+				}));
 
-					update((s) => ({
-						...s,
-						messages: chatMessages,
-						isRemoteStreaming: isStreaming
-					}));
+				// If session is streaming, append the buffered streaming messages
+				if (isStreaming && streamingMessages && streamingMessages.length > 0) {
+					console.log('[Chat] Session is streaming, appending buffered messages:', streamingMessages.length);
+					streamingMessages.forEach((sm, i) => {
+						chatMessages.push({
+							id: `stream-${Date.now()}-${i}`,
+							role: sm.role as 'user' | 'assistant',
+							content: sm.content || '',
+							type: sm.type as MessageType,
+							toolName: sm.tool_name,
+							toolId: sm.tool_id,
+							toolInput: sm.tool_input,
+							streaming: sm.streaming ?? true
+						});
+					});
 				}
+
+				update((s) => ({
+					...s,
+					messages: chatMessages,
+					isRemoteStreaming: isStreaming
+				}));
 				break;
 			}
 		}

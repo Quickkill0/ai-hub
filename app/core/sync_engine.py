@@ -57,6 +57,65 @@ class DeviceConnection:
             return False
 
 
+@dataclass
+class StreamingBuffer:
+    """Buffer to store in-progress streaming content for a session"""
+    session_id: str
+    messages: List[Dict[str, Any]] = field(default_factory=list)
+    started_at: datetime = field(default_factory=datetime.utcnow)
+
+    def add_chunk(self, chunk_type: str, content: str, tool_name: str = None, tool_id: str = None, tool_input: Dict = None):
+        """Add a streaming chunk to the buffer"""
+        # Find or create message for this chunk type
+        if chunk_type == 'text':
+            # Find existing text message or create new one
+            text_msg = next((m for m in self.messages if m.get('type') == 'text' and m.get('streaming')), None)
+            if text_msg:
+                text_msg['content'] = (text_msg.get('content') or '') + content
+            else:
+                self.messages.append({
+                    'type': 'text',
+                    'role': 'assistant',
+                    'content': content,
+                    'streaming': True
+                })
+        elif chunk_type == 'tool_use':
+            # Add tool use message
+            self.messages.append({
+                'type': 'tool_use',
+                'role': 'assistant',
+                'content': content,
+                'tool_name': tool_name,
+                'tool_id': tool_id,
+                'tool_input': tool_input,
+                'streaming': True
+            })
+            # Mark any previous text message as complete
+            for m in self.messages:
+                if m.get('type') == 'text':
+                    m['streaming'] = False
+        elif chunk_type == 'tool_result':
+            # Find the tool_use message and mark it complete, add result
+            for m in self.messages:
+                if m.get('tool_id') == tool_id:
+                    m['streaming'] = False
+            self.messages.append({
+                'type': 'tool_result',
+                'role': 'assistant',
+                'content': content,
+                'tool_id': tool_id,
+                'streaming': False
+            })
+
+    def get_messages(self) -> List[Dict[str, Any]]:
+        """Get all buffered messages"""
+        return self.messages.copy()
+
+    def clear(self):
+        """Clear the buffer"""
+        self.messages = []
+
+
 class SyncEngine:
     """
     Manages real-time synchronization between devices.
@@ -66,6 +125,7 @@ class SyncEngine:
     - Broadcast events to all devices watching a session
     - Support for streaming events (message chunks)
     - Exclude source device from broadcasts (to avoid echo)
+    - Buffer streaming content for late-joining devices
     """
 
     def __init__(self):
@@ -75,6 +135,8 @@ class SyncEngine:
         self._lock = asyncio.Lock()
         # Track streaming state per session
         self._streaming_sessions: Set[str] = set()
+        # Buffer for in-progress streaming content per session
+        self._streaming_buffers: Dict[str, StreamingBuffer] = {}
 
     async def register_device(
         self,
@@ -176,6 +238,8 @@ class SyncEngine:
     ):
         """Notify all devices that streaming has started for a session"""
         self._streaming_sessions.add(session_id)
+        # Create a new streaming buffer for this session
+        self._streaming_buffers[session_id] = StreamingBuffer(session_id=session_id)
 
         event = SyncEvent(
             event_type="stream_start",
@@ -194,6 +258,17 @@ class SyncEngine:
         source_device_id: Optional[str] = None
     ):
         """Broadcast a streaming chunk to all watching devices"""
+        # Add chunk to buffer for late-joining devices
+        if session_id in self._streaming_buffers:
+            buffer = self._streaming_buffers[session_id]
+            buffer.add_chunk(
+                chunk_type=chunk_type,
+                content=chunk_data.get('content', ''),
+                tool_name=chunk_data.get('tool_name'),
+                tool_id=chunk_data.get('tool_id'),
+                tool_input=chunk_data.get('tool_input')
+            )
+
         event = SyncEvent(
             event_type="stream_chunk",
             session_id=session_id,
@@ -206,6 +281,13 @@ class SyncEngine:
         )
         await self.broadcast_event(event, exclude_device_id=source_device_id)
 
+    def get_streaming_buffer(self, session_id: str) -> Optional[List[Dict[str, Any]]]:
+        """Get the current streaming buffer for a session (for late-joining devices)"""
+        buffer = self._streaming_buffers.get(session_id)
+        if buffer:
+            return buffer.get_messages()
+        return None
+
     async def broadcast_stream_end(
         self,
         session_id: str,
@@ -216,6 +298,8 @@ class SyncEngine:
     ):
         """Notify all devices that streaming has ended"""
         self._streaming_sessions.discard(session_id)
+        # Clear the streaming buffer
+        self._streaming_buffers.pop(session_id, None)
 
         event = SyncEvent(
             event_type="stream_end",
@@ -261,11 +345,16 @@ class SyncEngine:
 
     async def get_session_state(self, session_id: str) -> Dict[str, Any]:
         """Get current state of a session for new device joining"""
-        return {
+        state = {
             "session_id": session_id,
             "is_streaming": self.is_session_streaming(session_id),
             "connected_devices": self.get_device_count(session_id)
         }
+        # Include streaming buffer if session is actively streaming
+        streaming_buffer = self.get_streaming_buffer(session_id)
+        if streaming_buffer:
+            state["streaming_messages"] = streaming_buffer
+        return state
 
     async def cleanup_stale_connections(self, max_age_seconds: int = 300):
         """Remove connections that haven't been active recently"""
