@@ -90,13 +90,16 @@ async def chat_websocket(
     - load_session: Load/switch to a session
     - pong: Response to ping
     """
-    # Authenticate
+    # Must accept connection first before we can send close with reason
+    await websocket.accept()
+
+    # Now authenticate
     if not await authenticate_websocket(websocket, token):
+        logger.warning(f"Chat WebSocket auth failed - token provided: {token is not None}, cookie: {websocket.cookies.get('session') is not None}")
         await websocket.close(code=4001, reason="Authentication failed")
         return
 
-    await websocket.accept()
-    logger.info("Chat WebSocket connected")
+    logger.info("Chat WebSocket connected and authenticated")
 
     current_session_id: Optional[str] = None
     query_task: Optional[asyncio.Task] = None
