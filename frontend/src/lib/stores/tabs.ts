@@ -112,7 +112,7 @@ function createTabsStore() {
 	}
 
 	/**
-	 * Get auth token from cookie
+	 * Get auth token from cookie (may return null for httpOnly cookies)
 	 */
 	function getAuthToken(): string | null {
 		const cookies = document.cookie.split(';');
@@ -122,6 +122,7 @@ function createTabsStore() {
 				return value;
 			}
 		}
+		// Cookie might be httpOnly, return null and let server check cookie directly
 		return null;
 	}
 
@@ -154,14 +155,13 @@ function createTabsStore() {
 			return;
 		}
 
+		// Try to get token from cookie (may be null if httpOnly)
+		// Server will also check cookie directly for httpOnly cookies
 		const token = getAuthToken();
-		if (!token) {
-			console.error(`[Tab ${tabId}] No auth token available`);
-			updateTab(tabId, { error: 'Not authenticated' });
-			return;
+		let url = getWsUrl();
+		if (token) {
+			url = `${url}?token=${encodeURIComponent(token)}`;
 		}
-
-		const url = `${getWsUrl()}?token=${encodeURIComponent(token)}`;
 		console.log(`[Tab ${tabId}] Connecting to WebSocket...`);
 
 		const ws = new WebSocket(url);

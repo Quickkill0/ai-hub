@@ -32,20 +32,26 @@ _active_chat_sessions: dict[str, asyncio.Task] = {}
 
 async def authenticate_websocket(websocket: WebSocket, token: Optional[str]) -> bool:
     """Validate authentication token for WebSocket connection"""
-    if not token:
-        return False
+    # First try the token from query parameter
+    if token:
+        # Check session token
+        session = database.get_auth_session(token)
+        if session:
+            return True
 
-    # Check session token
-    session = database.get_auth_session(token)
-    if session:
-        return True
+        # Check API key (hashed)
+        import hashlib
+        key_hash = hashlib.sha256(token.encode()).hexdigest()
+        api_user = database.get_api_user_by_key_hash(key_hash)
+        if api_user:
+            return True
 
-    # Check API key (hashed)
-    import hashlib
-    key_hash = hashlib.sha256(token.encode()).hexdigest()
-    api_user = database.get_api_user_by_key_hash(key_hash)
-    if api_user:
-        return True
+    # Also check the cookie directly (for httpOnly cookies that JS can't read)
+    cookie_token = websocket.cookies.get("session")
+    if cookie_token:
+        session = database.get_auth_session(cookie_token)
+        if session:
+            return True
 
     return False
 
@@ -57,7 +63,7 @@ async def authenticate_websocket(websocket: WebSocket, token: Optional[str]) -> 
 @router.websocket("/ws/chat")
 async def chat_websocket(
     websocket: WebSocket,
-    token: str = Query(..., description="Authentication token")
+    token: Optional[str] = Query(None, description="Authentication token (optional if cookie auth)")
 ):
     """
     Primary WebSocket endpoint for chat.
