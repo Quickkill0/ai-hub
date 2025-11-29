@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import { goto } from '$app/navigation';
-	import { auth, username, claudeAuthenticated } from '$lib/stores/auth';
+	import { auth, username, claudeAuthenticated, isAuthenticated } from '$lib/stores/auth';
 	import {
 		chat,
 		messages,
@@ -63,16 +63,34 @@
 	let newProjectName = '';
 	let newProjectDescription = '';
 
-	onMount(() => {
-		// Initialize WebSocket connection
-		chat.init();
+	// Track auth state to reconnect WebSocket after login
+	let wasAuthenticated = false;
 
-		// Load initial data
-		Promise.all([
-			chat.loadProfiles(),
-			chat.loadSessions(),
-			chat.loadProjects()
-		]);
+	// Reactive statement to handle auth state changes
+	$: if ($isAuthenticated && !wasAuthenticated) {
+		// User just became authenticated - initialize/reconnect WebSocket
+		wasAuthenticated = true;
+		chat.init();
+		chat.loadProfiles();
+		chat.loadSessions();
+		chat.loadProjects();
+	} else if (!$isAuthenticated && wasAuthenticated) {
+		// User logged out
+		wasAuthenticated = false;
+	}
+
+	onMount(() => {
+		// Initialize WebSocket connection if already authenticated
+		if ($isAuthenticated) {
+			wasAuthenticated = true;
+			chat.init();
+			// Load initial data
+			Promise.all([
+				chat.loadProfiles(),
+				chat.loadSessions(),
+				chat.loadProjects()
+			]);
+		}
 	});
 
 	onDestroy(() => {
