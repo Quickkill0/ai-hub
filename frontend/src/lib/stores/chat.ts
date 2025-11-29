@@ -312,7 +312,7 @@ function createChatStore() {
 			case 'state': {
 				// State event from WebSocket connection (received on connect/reconnect)
 				// This tells us if the session is currently streaming on another device
-				const isStreaming = event.data.is_streaming as boolean;
+				const serverIsStreaming = event.data.is_streaming as boolean;
 				const streamingMessages = event.data.streaming_messages as Array<{
 					type: string;
 					role: string;
@@ -323,11 +323,34 @@ function createChatStore() {
 					streaming?: boolean;
 				}> | undefined;
 
-				console.log('[Chat] State event: is_streaming=', isStreaming, 'buffered messages:', streamingMessages?.length || 0);
+				console.log('[Chat] State event: is_streaming=', serverIsStreaming, 'buffered messages:', streamingMessages?.length || 0);
 
 				update((s) => {
+					// If server says streaming is complete but we still think we're streaming,
+					// reset the streaming state (fixes stuck stop button)
+					if (!serverIsStreaming && (s.isStreaming || s.isRemoteStreaming)) {
+						console.log('[Chat] Server says streaming complete, resetting streaming state');
+						// Mark any streaming messages as complete
+						const finalMessages = s.messages.map(m => {
+							if (m.streaming) {
+								return { ...m, streaming: false };
+							}
+							return m;
+						});
+						// Remove empty text messages
+						const cleanedMessages = finalMessages.filter(
+							m => !(m.type === 'text' && m.role === 'assistant' && !m.content)
+						);
+						return {
+							...s,
+							messages: cleanedMessages,
+							isStreaming: false,
+							isRemoteStreaming: false
+						};
+					}
+
 					// If session is streaming and we have buffered messages, merge them
-					if (isStreaming && streamingMessages && streamingMessages.length > 0) {
+					if (serverIsStreaming && streamingMessages && streamingMessages.length > 0) {
 						const messages = [...s.messages];
 
 						// Find existing streaming assistant message
@@ -361,7 +384,7 @@ function createChatStore() {
 								...s,
 								messages,
 								isStreaming: true,
-								isRemoteStreaming: isStreaming
+								isRemoteStreaming: serverIsStreaming
 							};
 						} else {
 							// No existing streaming message - create new ones from buffer
@@ -380,13 +403,19 @@ function createChatStore() {
 								...s,
 								messages: [...s.messages, ...newMsgs],
 								isStreaming: true,
-								isRemoteStreaming: isStreaming
+								isRemoteStreaming: serverIsStreaming
 							};
 						}
 					}
 
+					// If server says streaming but no buffered messages,
+					// keep our current isStreaming and update isRemoteStreaming
+					if (serverIsStreaming) {
+						return { ...s, isStreaming: s.isStreaming || true, isRemoteStreaming: true };
+					}
+
 					// Don't change isStreaming if we're already streaming locally
-					return { ...s, isRemoteStreaming: isStreaming };
+					return { ...s, isRemoteStreaming: serverIsStreaming };
 				});
 				break;
 			}
@@ -647,6 +676,10 @@ function createChatStore() {
 				// Connect to WebSocket for streaming updates
 				// The sync handler will receive stream_chunk, stream_end events
 				await connectSync(newSessionId);
+
+				// After WebSocket connects, request current state to catch up on any
+				// events that may have been broadcast before we connected
+				sync.requestState();
 
 				// Reload sessions list to show new session
 				await this.loadSessions();
