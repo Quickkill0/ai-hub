@@ -504,12 +504,15 @@
 			{:else}
 				<div class="space-y-1">
 					{#each $sessions as session}
-						<button
-							class="group w-full text-left p-2.5 rounded-lg transition-all
+						<div
+							class="group w-full text-left p-2.5 rounded-lg transition-all cursor-pointer
 								{$currentSessionId === session.id
 								? 'bg-[#2a2a2a] border-l-2 border-violet-500'
 								: 'hover:bg-[#222] border-l-2 border-transparent'}"
 							on:click={() => selectSession(session.id)}
+							on:keydown={(e) => e.key === 'Enter' && selectSession(session.id)}
+							role="button"
+							tabindex="0"
 						>
 							<div class="flex items-center justify-between">
 								<span class="text-sm text-gray-200 truncate flex-1">
@@ -537,7 +540,7 @@
 									<span>{formatCost(session.total_cost_usd)}</span>
 								{/if}
 							</div>
-						</button>
+						</div>
 					{/each}
 				</div>
 			{/if}
