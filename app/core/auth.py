@@ -475,16 +475,20 @@ class AuthService:
 
         return output
 
-    def _write_pty_input(self, text: str):
+    def _write_pty_input(self, text: str) -> bool:
         """Write input to the PTY master fd"""
         import os as os_module
 
         if self._claude_login_master_fd:
             try:
-                os_module.write(self._claude_login_master_fd, text.encode('utf-8'))
-                logger.debug(f"PTY write: {repr(text)}")
+                bytes_written = os_module.write(self._claude_login_master_fd, text.encode('utf-8'))
+                logger.info(f"PTY write: {repr(text)} ({bytes_written} bytes)")
+                return bytes_written > 0
             except OSError as e:
                 logger.error(f"Failed to write to PTY: {e}")
+                return False
+        logger.warning("No PTY master fd available for writing")
+        return False
 
     def start_claude_oauth_login(self) -> Dict[str, Any]:
         """
@@ -544,6 +548,7 @@ class AuthService:
                 import time
                 import pty
                 import os as os_module
+                import fcntl
 
                 try:
                     # Create PTY for interactive communication
@@ -556,7 +561,7 @@ class AuthService:
                         stdout=slave_fd,
                         stderr=slave_fd,
                         close_fds=True,
-                        env={**os.environ, 'HOME': home_env, 'TERM': 'xterm'}
+                        env={**os.environ, 'HOME': home_env, 'TERM': 'xterm-256color'}
                     )
 
                     os_module.close(slave_fd)
@@ -567,47 +572,85 @@ class AuthService:
 
                     all_output = ""
 
-                    # Wait for initial output and theme selection
-                    time.sleep(1.5)  # Give CLI more time to fully render
-                    output = self._read_pty_output(timeout=3.0)
-                    all_output += output
-                    logger.info(f"Initial claude output: {repr(output[:500] if len(output) > 500 else output)}")
+                    def read_all_available():
+                        """Read all available output from PTY without blocking"""
+                        nonlocal all_output
+                        import select
+                        result = ""
+                        while True:
+                            ready, _, _ = select.select([master_fd], [], [], 0.1)
+                            if not ready:
+                                break
+                            try:
+                                data = os_module.read(master_fd, 4096)
+                                if data:
+                                    chunk = data.decode('utf-8', errors='replace')
+                                    result += chunk
+                                    all_output += chunk
+                                else:
+                                    break
+                            except OSError:
+                                break
+                        return result
 
-                    # Step 1: Theme selection
-                    # The CLI uses arrow key selection with Enter to confirm
-                    # Default is already "Dark mode" (option 1), just press Enter
-                    if 'theme' in output.lower() or 'Dark mode' in output or 'text style' in output.lower():
-                        logger.info("Theme selection detected - pressing Enter to accept default")
-                        self._write_pty_input("\n")  # Just Enter to accept default
-                        time.sleep(1.0)
-                        output = self._read_pty_output(timeout=3.0)
-                        all_output += output
-                        logger.info(f"After theme selection: {repr(output[:500] if len(output) > 500 else output)}")
+                    # Wait for CLI to start and show welcome screen
+                    time.sleep(2.0)
+                    output = read_all_available()
+                    logger.info(f"Initial output ({len(output)} chars): {repr(output[:600])}")
 
-                    # Step 2: Login method selection
-                    # Look for login-related prompts
-                    if 'login' in output.lower() or 'sign in' in output.lower() or 'authenticate' in output.lower() or 'account' in output.lower():
-                        logger.info("Login method detected - pressing Enter to accept default (browser OAuth)")
-                        self._write_pty_input("\n")  # Just Enter to accept default
-                        time.sleep(1.5)  # Give more time for URL to appear
-                        output = self._read_pty_output(timeout=5.0)
-                        all_output += output
-                        logger.info(f"After login method: {repr(output[:500] if len(output) > 500 else output)}")
-
-                    # Keep reading until we see a URL or timeout
-                    for attempt in range(3):
-                        # Check for URL in all accumulated output
-                        url_match = re.search(r'(https://console\.anthropic\.com[^\s\x00-\x1f\]]*|https://[^\s\x00-\x1f\]]*oauth[^\s\x00-\x1f\]]*|https://[^\s\x00-\x1f\]]*auth[^\s\x00-\x1f\]]*)', all_output)
-                        if url_match:
+                    # Wait for theme selection menu to fully render
+                    # Look for specific markers that indicate the menu is ready
+                    max_wait = 10
+                    start_time = time.time()
+                    while time.time() - start_time < max_wait:
+                        if 'Dark mode' in all_output and '1.' in all_output:
+                            logger.info("Theme menu detected (Dark mode option visible)")
                             break
-                        # If we see a prompt that needs input, try pressing Enter
-                        if '❯' in output or 'press enter' in output.lower():
-                            logger.info(f"Prompt detected (attempt {attempt + 1}), pressing Enter")
-                            self._write_pty_input("\n")
+                        if 'Choose' in all_output and 'style' in all_output:
+                            logger.info("Theme menu detected (Choose style text visible)")
+                            break
+                        time.sleep(0.5)
+                        output = read_all_available()
+                        if output:
+                            logger.info(f"More output: {repr(output[:200])}")
+
+                    # Step 1: Theme selection - press Enter to accept default
+                    logger.info("Sending Enter for theme selection")
+                    self._write_pty_input("\r")  # Use \r (carriage return) instead of \n
+                    time.sleep(1.5)
+                    output = read_all_available()
+                    logger.info(f"After theme Enter ({len(output)} chars): {repr(output[:400])}")
+
+                    # Wait for login method menu
+                    time.sleep(1.0)
+                    output = read_all_available()
+                    if output:
+                        logger.info(f"Login menu output: {repr(output[:400])}")
+
+                    # Step 2: If we see login options, press Enter
+                    if 'login' in all_output.lower() or 'sign in' in all_output.lower() or 'Anthropic' in all_output:
+                        logger.info("Sending Enter for login method")
+                        self._write_pty_input("\r")
+                        time.sleep(2.0)
+                        output = read_all_available()
+                        logger.info(f"After login Enter ({len(output)} chars): {repr(output[:400])}")
+
+                    # Keep trying Enter and reading until we see a URL
+                    for attempt in range(5):
+                        # Check for URL in all accumulated output
+                        url_match = re.search(r'(https://[^\s\x00-\x1f\]\)\"\']+)', all_output)
+                        if url_match:
+                            oauth_url = url_match.group(1).rstrip(')').rstrip(']').rstrip('"').rstrip("'")
+                            # Skip non-auth URLs
+                            if 'github.com' not in oauth_url and 'npmjs' not in oauth_url:
+                                logger.info(f"Found URL: {oauth_url}")
+                                break
+
+                        logger.info(f"Attempt {attempt + 1}: No URL yet, pressing Enter")
+                        self._write_pty_input("\r")
                         time.sleep(1.5)
-                        output = self._read_pty_output(timeout=3.0)
-                        all_output += output
-                        logger.info(f"Additional output (attempt {attempt + 1}): {repr(output[:300] if len(output) > 300 else output)}")
+                        output = read_all_available()
+                        logger.info(f"Attempt {attempt + 1} output: {repr(output[:300])}")
 
                     # Step 3: Extract the OAuth URL from all accumulated output
                     # Look for anthropic console URL or other auth URLs
