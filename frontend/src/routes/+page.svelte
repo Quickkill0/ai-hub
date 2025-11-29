@@ -109,14 +109,13 @@
 		tabs.destroy();
 	});
 
-	// Get prompt for current tab
-	function getTabPrompt(tabId: string): string {
-		return tabInputs[tabId] || '';
-	}
-
-	function setTabPrompt(tabId: string, value: string) {
-		tabInputs[tabId] = value;
-		tabInputs = tabInputs; // Trigger reactivity
+	// Initialize tabInputs for all tabs to ensure proper binding
+	$: {
+		for (const tab of $allTabs) {
+			if (tabInputs[tab.id] === undefined) {
+				tabInputs[tab.id] = '';
+			}
+		}
 	}
 
 	// Auto-scroll for active tab
@@ -157,10 +156,11 @@
 	}
 
 	async function handleSubmit(tabId: string) {
-		const prompt = getTabPrompt(tabId);
+		const prompt = tabInputs[tabId] || '';
 		if (!prompt.trim() || !$activeTab || $activeTab.isStreaming) return;
 
-		setTabPrompt(tabId, '');
+		tabInputs[tabId] = '';
+		tabInputs = tabInputs; // Trigger Svelte reactivity
 		tabUploadedFiles[tabId] = [];
 		tabs.sendMessage(tabId, prompt);
 	}
@@ -422,12 +422,13 @@
 				tabUploadedFiles[tabId] = [...tabUploadedFiles[tabId], result];
 
 				const fileRef = `[File: ${result.path}]`;
-				const currentPrompt = getTabPrompt(tabId);
+				const currentPrompt = tabInputs[tabId] || '';
 				if (currentPrompt.trim()) {
-					setTabPrompt(tabId, currentPrompt + '\n' + fileRef);
+					tabInputs[tabId] = currentPrompt + '\n' + fileRef;
 				} else {
-					setTabPrompt(tabId, fileRef);
+					tabInputs[tabId] = fileRef;
 				}
+				tabInputs = tabInputs; // Trigger Svelte reactivity
 			}
 		} catch (error: any) {
 			console.error('Upload failed:', error);
@@ -444,9 +445,10 @@
 		if (!file) return;
 
 		const fileRef = `[File: ${file.path}]`;
-		let prompt = getTabPrompt(tabId);
+		let prompt = tabInputs[tabId] || '';
 		prompt = prompt.replace(fileRef, '').replace(/\n\n+/g, '\n').trim();
-		setTabPrompt(tabId, prompt);
+		tabInputs[tabId] = prompt;
+		tabInputs = tabInputs; // Trigger Svelte reactivity
 		tabUploadedFiles[tabId] = files.filter((_, i) => i !== index);
 	}
 
@@ -874,11 +876,8 @@
 						<div class="flex-1 relative">
 							<textarea
 								bind:this={textareas[tabId]}
-								value={getTabPrompt(tabId)}
-								on:input={(e) => {
-									setTabPrompt(tabId, e.currentTarget.value);
-									autoResize(tabId);
-								}}
+								bind:value={tabInputs[tabId]}
+								on:input={() => autoResize(tabId)}
 								on:keydown={(e) => handleKeyDown(e, tabId)}
 								placeholder="Message Claude..."
 								class="w-full bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl px-4 py-2.5 text-white placeholder-gray-500 resize-none focus:outline-none focus:ring-1 focus:ring-violet-500 focus:border-violet-500 min-h-[40px] max-h-[200px] leading-normal"
