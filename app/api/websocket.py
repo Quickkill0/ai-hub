@@ -110,22 +110,27 @@ async def chat_websocket(
         from app.core.query_engine import stream_to_websocket
 
         try:
+            logger.info(f"Starting query for session {session_id}, profile={profile_id}, project={project_id}")
             await send_json({"type": "start", "session_id": session_id})
 
+            logger.info(f"Calling stream_to_websocket for session {session_id}")
             async for event in stream_to_websocket(
                 prompt=prompt,
                 session_id=session_id,
                 profile_id=profile_id,
                 project_id=project_id
             ):
+                logger.debug(f"Streaming event for session {session_id}: {event.get('type')}")
                 await send_json(event)
+
+            logger.info(f"Query completed for session {session_id}")
 
         except asyncio.CancelledError:
             await send_json({"type": "stopped", "session_id": session_id})
             logger.info(f"Query cancelled for session {session_id}")
 
         except Exception as e:
-            logger.error(f"Query error: {e}")
+            logger.error(f"Query error for session {session_id}: {e}", exc_info=True)
             await send_json({"type": "error", "message": str(e)})
 
         finally:

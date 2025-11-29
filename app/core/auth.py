@@ -77,8 +77,11 @@ class AuthService:
 
     def __init__(self):
         """Initialize auth service"""
-        self.config_dir = Path(os.environ.get('HOME', '/home/appuser')) / '.claude'
-        self.gh_config_dir = Path(os.environ.get('HOME', '/home/appuser')) / '.config' / 'gh'
+        # Use HOME environment variable for config directories
+        home = Path(os.environ.get('HOME', '/home/appuser'))
+        self.config_dir = home / '.claude'
+        self.gh_config_dir = home / '.config' / 'gh'
+
         # Store active OAuth login process for multi-step flow
         self._claude_login_process = None
         self._claude_login_master_fd = None

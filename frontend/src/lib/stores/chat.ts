@@ -52,14 +52,29 @@ interface ChatState {
 	wsConnected: boolean;
 }
 
+// Load persisted values from localStorage
+function getPersistedProfile(): string {
+	if (typeof window !== 'undefined') {
+		return localStorage.getItem('aihub_selectedProfile') || 'claude-code';
+	}
+	return 'claude-code';
+}
+
+function getPersistedProject(): string {
+	if (typeof window !== 'undefined') {
+		return localStorage.getItem('aihub_selectedProject') || '';
+	}
+	return '';
+}
+
 function createChatStore() {
 	const { subscribe, set, update } = writable<ChatState>({
 		sessionId: null,
 		messages: [],
 		profiles: [],
-		selectedProfile: 'claude-code',
+		selectedProfile: getPersistedProfile(),
 		projects: [],
-		selectedProject: '',
+		selectedProject: getPersistedProject(),
 		sessions: [],
 		isStreaming: false,
 		error: null,
@@ -571,10 +586,16 @@ function createChatStore() {
 		},
 
 		setProfile(profileId: string) {
+			if (typeof window !== 'undefined') {
+				localStorage.setItem('aihub_selectedProfile', profileId);
+			}
 			update(s => ({ ...s, selectedProfile: profileId }));
 		},
 
 		setProject(projectId: string) {
+			if (typeof window !== 'undefined') {
+				localStorage.setItem('aihub_selectedProject', projectId);
+			}
 			update(s => ({ ...s, selectedProject: projectId }));
 		},
 

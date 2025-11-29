@@ -771,12 +771,12 @@
 				<input type="file" bind:this={fileInput} on:change={handleFileSelect} class="hidden" multiple />
 
 				<!-- Input Form -->
-				<form on:submit|preventDefault={handleSubmit} class="flex items-end gap-3">
+				<form on:submit|preventDefault={handleSubmit} class="flex items-center gap-2">
 					<!-- File Button -->
 					<button
 						type="button"
 						on:click={triggerFileUpload}
-						class="p-2.5 text-gray-500 hover:text-white hover:bg-[#2a2a2a] rounded-lg transition-colors disabled:opacity-50"
+						class="flex-shrink-0 w-10 h-10 flex items-center justify-center text-gray-500 hover:text-white hover:bg-[#2a2a2a] rounded-lg transition-colors disabled:opacity-50"
 						disabled={$isStreaming || !$claudeAuthenticated || isUploading}
 						title={$selectedProject ? 'Upload file' : 'Select a project to upload files'}
 					>
@@ -800,7 +800,7 @@
 							on:keydown={handleKeyDown}
 							on:input={autoResize}
 							placeholder="Message Claude..."
-							class="w-full bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl px-4 py-3 text-white placeholder-gray-500 resize-none focus:outline-none focus:ring-1 focus:ring-violet-500 focus:border-violet-500 min-h-[48px] max-h-[200px]"
+							class="w-full bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl px-4 py-2.5 text-white placeholder-gray-500 resize-none focus:outline-none focus:ring-1 focus:ring-violet-500 focus:border-violet-500 min-h-[40px] max-h-[200px] leading-normal"
 							rows="1"
 							disabled={$isStreaming || !$claudeAuthenticated}
 						></textarea>
@@ -811,7 +811,7 @@
 						<button
 							type="button"
 							on:click={() => chat.stopGeneration()}
-							class="p-2.5 bg-red-500/20 text-red-400 hover:bg-red-500/30 rounded-lg transition-colors"
+							class="flex-shrink-0 w-10 h-10 flex items-center justify-center bg-red-500/20 text-red-400 hover:bg-red-500/30 rounded-lg transition-colors"
 						>
 							<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -821,7 +821,7 @@
 					{:else}
 						<button
 							type="submit"
-							class="p-2.5 bg-violet-600 hover:bg-violet-500 text-white rounded-lg transition-colors disabled:opacity-50 disabled:hover:bg-violet-600"
+							class="flex-shrink-0 w-10 h-10 flex items-center justify-center bg-violet-600 hover:bg-violet-500 text-white rounded-lg transition-colors disabled:opacity-50 disabled:hover:bg-violet-600"
 							disabled={!prompt.trim() || !$claudeAuthenticated}
 						>
 							<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
