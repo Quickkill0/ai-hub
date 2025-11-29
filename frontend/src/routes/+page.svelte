@@ -3,27 +3,30 @@
 	import { goto } from '$app/navigation';
 	import { auth, username, claudeAuthenticated, isAuthenticated } from '$lib/stores/auth';
 	import {
-		chat,
-		messages,
-		isStreaming,
-		chatError,
+		tabs,
+		allTabs,
+		activeTabId,
+		activeTab,
 		profiles,
-		selectedProfile,
-		sessions,
-		currentSessionId,
 		projects,
-		selectedProject,
-		wsConnected
-	} from '$lib/stores/chat';
+		sessions,
+		defaultProfile,
+		defaultProject,
+		type ChatMessage,
+		type ChatTab
+	} from '$lib/stores/tabs';
 	import { api, type FileUploadResponse } from '$lib/api/client';
 	import { marked } from 'marked';
 
-	let prompt = '';
-	let messagesContainer: HTMLElement;
+	// Per-tab state (we track input per tab)
+	let tabInputs: Record<string, string> = {};
+	let tabUploadedFiles: Record<string, FileUploadResponse[]> = {};
+
+	let messagesContainers: Record<string, HTMLElement> = {};
 	let sidebarOpen = false;
-	let shouldAutoScroll = true;
-	let lastMessageCount = 0;
-	let lastContentLength = 0;
+	let shouldAutoScroll: Record<string, boolean> = {};
+	let lastMessageCounts: Record<string, number> = {};
+	let lastContentLengths: Record<string, number> = {};
 	let showProfileModal = false;
 	let showProjectModal = false;
 	let showNewProfileForm = false;
@@ -31,8 +34,7 @@
 	let editingProfile: any = null;
 	let fileInput: HTMLInputElement;
 	let isUploading = false;
-	let uploadedFiles: FileUploadResponse[] = [];
-	let textarea: HTMLTextAreaElement;
+	let textareas: Record<string, HTMLTextAreaElement> = {};
 
 	// Profile form state
 	let profileForm = {
@@ -63,95 +65,105 @@
 	let newProjectName = '';
 	let newProjectDescription = '';
 
-	// Track auth state to reconnect WebSocket after login
+	// Track auth state
 	let wasAuthenticated = false;
 
-	// Reactive statement to handle auth state changes
+	// Initialize tabs when authenticated
 	$: if ($isAuthenticated && !wasAuthenticated) {
-		// User just became authenticated - initialize/reconnect WebSocket
 		wasAuthenticated = true;
-		chat.init();
-		chat.loadProfiles();
-		chat.loadSessions();
-		chat.loadProjects();
+		tabs.init();
+		tabs.loadProfiles();
+		tabs.loadSessions();
+		tabs.loadProjects();
 	} else if (!$isAuthenticated && wasAuthenticated) {
-		// User logged out
 		wasAuthenticated = false;
 	}
 
 	onMount(() => {
-		// Initialize WebSocket connection if already authenticated
 		if ($isAuthenticated) {
 			wasAuthenticated = true;
-			chat.init();
-			// Load initial data
+			tabs.init();
 			Promise.all([
-				chat.loadProfiles(),
-				chat.loadSessions(),
-				chat.loadProjects()
+				tabs.loadProfiles(),
+				tabs.loadSessions(),
+				tabs.loadProjects()
 			]);
 		}
 	});
 
 	onDestroy(() => {
-		chat.destroy();
+		tabs.destroy();
 	});
 
-	// Check if user is near the bottom of scroll area
-	function isNearBottom(threshold = 100): boolean {
-		if (!messagesContainer) return true;
-		const { scrollTop, scrollHeight, clientHeight } = messagesContainer;
+	// Get prompt for current tab
+	function getTabPrompt(tabId: string): string {
+		return tabInputs[tabId] || '';
+	}
+
+	function setTabPrompt(tabId: string, value: string) {
+		tabInputs[tabId] = value;
+		tabInputs = tabInputs; // Trigger reactivity
+	}
+
+	// Auto-scroll for active tab
+	$: if ($activeTab && messagesContainers[$activeTab.id]) {
+		const tabId = $activeTab.id;
+		const container = messagesContainers[tabId];
+		const messages = $activeTab.messages;
+
+		if (messages.length > 0) {
+			const newMessageArrived = messages.length > (lastMessageCounts[tabId] || 0);
+			lastMessageCounts[tabId] = messages.length;
+
+			const totalContentLength = messages.reduce((sum, m) => sum + (m.content?.length || 0), 0);
+			const contentUpdated = totalContentLength > (lastContentLengths[tabId] || 0);
+			lastContentLengths[tabId] = totalContentLength;
+
+			const autoScroll = shouldAutoScroll[tabId] !== false;
+			if ((newMessageArrived || (contentUpdated && $activeTab.isStreaming)) && autoScroll) {
+				setTimeout(() => {
+					if (container && isNearBottom(container, 150)) {
+						container.scrollTop = container.scrollHeight;
+					}
+				}, 10);
+			}
+		}
+	}
+
+	function isNearBottom(container: HTMLElement, threshold = 100): boolean {
+		if (!container) return true;
+		const { scrollTop, scrollHeight, clientHeight } = container;
 		return scrollHeight - scrollTop - clientHeight < threshold;
 	}
 
-	// Auto-scroll when new messages arrive
-	$: if (messagesContainer && $messages.length > 0) {
-		const newMessageArrived = $messages.length > lastMessageCount;
-		lastMessageCount = $messages.length;
-
-		const totalContentLength = $messages.reduce((sum, m) => sum + (m.content?.length || 0), 0);
-		const contentUpdated = totalContentLength > lastContentLength;
-		lastContentLength = totalContentLength;
-
-		if ((newMessageArrived || (contentUpdated && $isStreaming)) && shouldAutoScroll) {
-			setTimeout(() => {
-				if (isNearBottom(150)) {
-					messagesContainer.scrollTop = messagesContainer.scrollHeight;
-				}
-			}, 10);
-		}
+	function handleScroll(tabId: string) {
+		const container = messagesContainers[tabId];
+		if (!container) return;
+		shouldAutoScroll[tabId] = isNearBottom(container, 100);
 	}
 
-	function handleScroll() {
-		if (!messagesContainer) return;
-		shouldAutoScroll = isNearBottom(100);
+	async function handleSubmit(tabId: string) {
+		const prompt = getTabPrompt(tabId);
+		if (!prompt.trim() || !$activeTab || $activeTab.isStreaming) return;
+
+		setTabPrompt(tabId, '');
+		tabUploadedFiles[tabId] = [];
+		tabs.sendMessage(tabId, prompt);
 	}
 
-	async function handleSubmit() {
-		if (!prompt.trim() || $isStreaming) return;
-		const userPrompt = prompt;
-		prompt = '';
-		uploadedFiles = [];
-		chat.sendMessage(userPrompt);
-	}
-
-	function handleKeyDown(e: KeyboardEvent) {
+	function handleKeyDown(e: KeyboardEvent, tabId: string) {
 		if (e.key === 'Enter' && !e.shiftKey) {
 			e.preventDefault();
-			handleSubmit();
+			handleSubmit(tabId);
 		}
 	}
 
-	// Auto-resize textarea
-	function autoResize() {
+	function autoResize(tabId: string) {
+		const textarea = textareas[tabId];
 		if (textarea) {
 			textarea.style.height = 'auto';
 			textarea.style.height = Math.min(textarea.scrollHeight, 200) + 'px';
 		}
-	}
-
-	$: if (prompt !== undefined && textarea) {
-		autoResize();
 	}
 
 	async function handleLogout() {
@@ -187,21 +199,40 @@
 		return title.length > maxLength ? title.substring(0, maxLength) + '...' : title;
 	}
 
-	async function selectSession(sessionId: string) {
-		await chat.loadSession(sessionId);
+	// Open session in new tab
+	function openSessionInNewTab(sessionId: string) {
+		tabs.createTab(sessionId);
+		sidebarOpen = false;
+	}
+
+	// Open session in current tab
+	async function openSessionInCurrentTab(sessionId: string) {
+		if ($activeTabId) {
+			await tabs.loadSessionInTab($activeTabId, sessionId);
+		}
 		sidebarOpen = false;
 	}
 
 	async function deleteSession(e: Event, sessionId: string) {
 		e.stopPropagation();
 		if (confirm('Delete this session?')) {
-			await chat.deleteSession(sessionId);
+			await tabs.deleteSession(sessionId);
 		}
 	}
 
-	function handleNewChat() {
-		chat.startNewChat();
-		sidebarOpen = false;
+	function handleNewTab() {
+		tabs.createTab();
+	}
+
+	function handleCloseTab(e: Event, tabId: string) {
+		e.stopPropagation();
+		tabs.closeTab(tabId);
+	}
+
+	function handleNewChatInTab() {
+		if ($activeTabId) {
+			tabs.startNewChatInTab($activeTabId);
+		}
 	}
 
 	// Profile management functions
@@ -310,13 +341,13 @@
 		}
 
 		if (editingProfile) {
-			await chat.updateProfile(profileForm.id, {
+			await tabs.updateProfile(profileForm.id, {
 				name: profileForm.name,
 				description: profileForm.description || undefined,
 				config
 			});
 		} else {
-			await chat.createProfile({
+			await tabs.createProfile({
 				id: profileForm.id.toLowerCase().replace(/[^a-z0-9-]/g, '-'),
 				name: profileForm.name,
 				description: profileForm.description || undefined,
@@ -330,14 +361,14 @@
 
 	async function deleteProfile(profileId: string) {
 		if (confirm('Delete this profile?')) {
-			await chat.deleteProfile(profileId);
+			await tabs.deleteProfile(profileId);
 		}
 	}
 
 	async function createProject() {
 		if (!newProjectId || !newProjectName) return;
 
-		await chat.createProject({
+		await tabs.createProject({
 			id: newProjectId.toLowerCase().replace(/[^a-z0-9-]/g, '-'),
 			name: newProjectName,
 			description: newProjectDescription || undefined
@@ -351,12 +382,12 @@
 
 	async function deleteProject(projectId: string) {
 		if (confirm('Delete this project?')) {
-			await chat.deleteProject(projectId);
+			await tabs.deleteProject(projectId);
 		}
 	}
 
 	function triggerFileUpload() {
-		if (!$selectedProject) {
+		if (!$activeTab?.project) {
 			alert('Please select a project first to upload files.');
 			return;
 		}
@@ -366,18 +397,22 @@
 	async function handleFileSelect(event: Event) {
 		const input = event.target as HTMLInputElement;
 		const files = input.files;
-		if (!files || files.length === 0 || !$selectedProject) return;
+		if (!files || files.length === 0 || !$activeTab?.project || !$activeTabId) return;
 
 		isUploading = true;
+		const tabId = $activeTabId;
 		try {
 			for (const file of Array.from(files)) {
-				const result = await api.uploadFile(`/projects/${$selectedProject}/upload`, file);
-				uploadedFiles = [...uploadedFiles, result];
+				const result = await api.uploadFile(`/projects/${$activeTab.project}/upload`, file);
+				if (!tabUploadedFiles[tabId]) tabUploadedFiles[tabId] = [];
+				tabUploadedFiles[tabId] = [...tabUploadedFiles[tabId], result];
+
 				const fileRef = `[File: ${result.path}]`;
-				if (prompt.trim()) {
-					prompt = prompt + '\n' + fileRef;
+				const currentPrompt = getTabPrompt(tabId);
+				if (currentPrompt.trim()) {
+					setTabPrompt(tabId, currentPrompt + '\n' + fileRef);
 				} else {
-					prompt = fileRef;
+					setTabPrompt(tabId, fileRef);
 				}
 			}
 		} catch (error: any) {
@@ -389,11 +424,16 @@
 		}
 	}
 
-	function removeUploadedFile(index: number) {
-		const file = uploadedFiles[index];
+	function removeUploadedFile(tabId: string, index: number) {
+		const files = tabUploadedFiles[tabId] || [];
+		const file = files[index];
+		if (!file) return;
+
 		const fileRef = `[File: ${file.path}]`;
+		let prompt = getTabPrompt(tabId);
 		prompt = prompt.replace(fileRef, '').replace(/\n\n+/g, '\n').trim();
-		uploadedFiles = uploadedFiles.filter((_, i) => i !== index);
+		setTabPrompt(tabId, prompt);
+		tabUploadedFiles[tabId] = files.filter((_, i) => i !== index);
 	}
 
 	function toggleSettingSource(source: string) {
@@ -403,41 +443,37 @@
 			profileForm.setting_sources = [...profileForm.setting_sources, source];
 		}
 	}
+
+	function setTabProfile(tabId: string, profileId: string) {
+		tabs.setTabProfile(tabId, profileId);
+		tabs.setDefaultProfile(profileId);
+	}
+
+	function setTabProject(tabId: string, projectId: string) {
+		tabs.setTabProject(tabId, projectId);
+		tabs.setDefaultProject(projectId);
+	}
 </script>
 
 <svelte:head>
 	<title>AI Hub</title>
-	<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
 </svelte:head>
 
-<div class="h-screen flex overflow-hidden bg-[#0d0d0d]">
-	<!-- Mobile Sidebar Overlay -->
-	{#if sidebarOpen}
-		<div
-			class="fixed inset-0 bg-black/60 z-40 lg:hidden backdrop-blur-sm"
-			on:click={() => (sidebarOpen = false)}
-			on:keydown={(e) => e.key === 'Escape' && (sidebarOpen = false)}
-			role="button"
-			tabindex="0"
-		></div>
-	{/if}
-
+<div class="h-screen flex bg-[#0d0d0d] text-gray-100">
 	<!-- Sidebar -->
 	<aside
-		class="
-		fixed lg:static inset-y-0 left-0 z-50
-		w-72 bg-[#171717] border-r border-[#2a2a2a]
-		transform transition-transform duration-200 ease-in-out
-		{sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
-		flex flex-col
-	"
+		class="fixed inset-y-0 left-0 z-40 w-72 bg-[#171717] border-r border-[#2a2a2a] transform transition-transform duration-200 lg:relative lg:translate-x-0 {sidebarOpen
+			? 'translate-x-0'
+			: '-translate-x-full'}"
 	>
-		<!-- Header -->
-		<div class="p-4 border-b border-[#2a2a2a]">
-			<div class="flex items-center justify-between mb-4">
+		<div class="h-full flex flex-col">
+			<!-- Sidebar Header -->
+			<div class="p-4 border-b border-[#2a2a2a] flex items-center justify-between">
 				<div class="flex items-center gap-2">
 					<div class="w-8 h-8 rounded-lg bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center">
-						<span class="text-white font-bold text-sm">AI</span>
+						<svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+						</svg>
 					</div>
 					<span class="font-semibold text-white">AI Hub</span>
 				</div>
@@ -448,147 +484,156 @@
 				</button>
 			</div>
 
-			<button
-				on:click={handleNewChat}
-				class="w-full py-2.5 px-4 rounded-lg bg-[#2a2a2a] hover:bg-[#3a3a3a] text-white text-sm font-medium transition-colors flex items-center justify-center gap-2"
-			>
-				<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-				</svg>
-				New Chat
-			</button>
-		</div>
-
-		<!-- Selectors -->
-		<div class="p-3 space-y-3 border-b border-[#2a2a2a]">
-			<!-- Profile -->
-			<div>
-				<div class="flex items-center justify-between mb-1.5">
-					<span class="text-[10px] uppercase tracking-wider text-gray-500 font-medium">Profile</span>
-					<button class="text-[10px] text-violet-400 hover:text-violet-300" on:click={() => (showProfileModal = true)}>
-						Manage
-					</button>
-				</div>
-				<select
-					value={$selectedProfile}
-					on:change={(e) => chat.setProfile(e.currentTarget.value)}
-					class="w-full bg-[#2a2a2a] border-0 rounded-lg px-3 py-2 text-sm text-white focus:ring-1 focus:ring-violet-500"
+			<!-- New Chat Button -->
+			<div class="p-3">
+				<button
+					on:click={handleNewTab}
+					class="w-full flex items-center gap-2 px-4 py-2.5 bg-violet-600 hover:bg-violet-500 text-white rounded-lg transition-colors"
 				>
-					{#each $profiles as profile}
-						<option value={profile.id}>{profile.name}</option>
-					{/each}
-				</select>
-			</div>
-
-			<!-- Project -->
-			<div>
-				<div class="flex items-center justify-between mb-1.5">
-					<span class="text-[10px] uppercase tracking-wider text-gray-500 font-medium">Project</span>
-					<button class="text-[10px] text-violet-400 hover:text-violet-300" on:click={() => (showProjectModal = true)}>
-						Manage
-					</button>
-				</div>
-				<select
-					value={$selectedProject}
-					on:change={(e) => chat.setProject(e.currentTarget.value)}
-					class="w-full bg-[#2a2a2a] border-0 rounded-lg px-3 py-2 text-sm text-white focus:ring-1 focus:ring-violet-500"
-				>
-					<option value="">Default Workspace</option>
-					{#each $projects as project}
-						<option value={project.id}>{project.name}</option>
-					{/each}
-				</select>
-			</div>
-		</div>
-
-		<!-- Sessions -->
-		<div class="flex-1 overflow-y-auto p-3">
-			<div class="flex items-center justify-between mb-2">
-				<span class="text-[10px] uppercase tracking-wider text-gray-500 font-medium">History</span>
-				<button on:click={() => chat.loadSessions()} class="text-gray-500 hover:text-white" title="Refresh">
-					<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-						<path
-							stroke-linecap="round"
-							stroke-linejoin="round"
-							stroke-width="2"
-							d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-						/>
+					<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
 					</svg>
+					<span class="font-medium">New Tab</span>
 				</button>
 			</div>
 
-			{#if $sessions.length === 0}
-				<p class="text-sm text-gray-600 text-center py-8">No conversations yet</p>
-			{:else}
+			<!-- Session History -->
+			<div class="flex-1 overflow-y-auto px-3 pb-3">
+				<div class="text-xs text-gray-500 uppercase tracking-wider px-2 mb-2">History</div>
 				<div class="space-y-1">
 					{#each $sessions as session}
 						<div
-							class="group w-full text-left p-2.5 rounded-lg transition-all cursor-pointer
-								{$currentSessionId === session.id
-								? 'bg-[#2a2a2a] border-l-2 border-violet-500'
-								: 'hover:bg-[#222] border-l-2 border-transparent'}"
-							on:click={() => selectSession(session.id)}
-							on:keydown={(e) => e.key === 'Enter' && selectSession(session.id)}
+							class="group flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-[#252525] cursor-pointer transition-colors"
+							on:click={() => openSessionInNewTab(session.id)}
+							on:keypress={(e) => e.key === 'Enter' && openSessionInNewTab(session.id)}
 							role="button"
 							tabindex="0"
 						>
-							<div class="flex items-center justify-between">
-								<span class="text-sm text-gray-200 truncate flex-1">
-									{truncateTitle(session.title)}
-								</span>
-								<button
-									on:click={(e) => deleteSession(e, session.id)}
-									class="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-red-400 p-1 transition-opacity"
-									title="Delete"
-								>
-									<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-										<path
-											stroke-linecap="round"
-											stroke-linejoin="round"
-											stroke-width="2"
-											d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-										/>
-									</svg>
-								</button>
+							<div class="flex-1 min-w-0">
+								<p class="text-sm text-gray-300 truncate">{truncateTitle(session.title)}</p>
+								<p class="text-xs text-gray-600">{formatDate(session.updated_at)}</p>
 							</div>
-							<div class="flex items-center gap-2 mt-1 text-xs text-gray-500">
-								<span>{formatDate(session.updated_at)}</span>
-								{#if session.total_cost_usd > 0}
-									<span class="text-gray-600">|</span>
-									<span>{formatCost(session.total_cost_usd)}</span>
-								{/if}
-							</div>
+							<button
+								on:click|stopPropagation={(e) => deleteSession(e, session.id)}
+								class="opacity-0 group-hover:opacity-100 p-1 text-gray-500 hover:text-red-400 transition-opacity"
+								title="Delete session"
+							>
+								<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+								</svg>
+							</button>
 						</div>
 					{/each}
 				</div>
-			{/if}
-		</div>
-
-		<!-- User -->
-		<div class="p-3 border-t border-[#2a2a2a]">
-			<!-- Connection Status -->
-			<div class="flex items-center gap-2 mb-2 text-xs">
-				<div class="w-2 h-2 rounded-full {$wsConnected ? 'bg-green-500' : 'bg-red-500'}"></div>
-				<span class="text-gray-500">{$wsConnected ? 'Connected' : 'Disconnected'}</span>
 			</div>
 
-			{#if !$claudeAuthenticated}
-				<div class="text-xs text-amber-500 mb-2 flex items-center gap-1.5 bg-amber-500/10 px-2 py-1.5 rounded">
-					<svg class="w-3.5 h-3.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-						<path
-							fill-rule="evenodd"
-							d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
-							clip-rule="evenodd"
-						/>
-					</svg>
-					<span>Claude not authenticated</span>
+			<!-- Sidebar Footer -->
+			<div class="p-3 border-t border-[#2a2a2a]">
+				<div class="flex items-center justify-between">
+					<div class="flex items-center gap-2">
+						<div class="w-8 h-8 rounded-full bg-violet-600/20 flex items-center justify-center">
+							<span class="text-sm text-violet-400">{$username?.[0]?.toUpperCase() || 'U'}</span>
+						</div>
+						<span class="text-sm text-gray-400">{$username}</span>
+					</div>
+					<div class="flex items-center gap-2">
+						<a href="/settings" class="text-gray-500 hover:text-white p-1">
+							<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path
+									stroke-linecap="round"
+									stroke-linejoin="round"
+									stroke-width="2"
+									d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
+								/>
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+							</svg>
+						</a>
+						<button on:click={handleLogout} class="text-gray-500 hover:text-white text-sm">Logout</button>
+					</div>
 				</div>
-			{/if}
+			</div>
+		</div>
+	</aside>
 
-			<div class="flex items-center justify-between">
-				<span class="text-sm text-gray-400">{$username}</span>
-				<div class="flex items-center gap-2">
-					<a href="/settings" class="text-gray-500 hover:text-white p-1" title="Settings">
+	<!-- Main Content -->
+	<main class="flex-1 flex flex-col min-w-0 bg-[#0d0d0d]">
+		<!-- Tab Bar -->
+		<div class="bg-[#171717] border-b border-[#2a2a2a] flex items-center">
+			<!-- Mobile Menu Button -->
+			<button class="lg:hidden p-3 text-gray-400 hover:text-white" on:click={() => (sidebarOpen = true)}>
+				<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+				</svg>
+			</button>
+
+			<!-- Tabs -->
+			<div class="flex-1 flex items-center overflow-x-auto scrollbar-hide" role="tablist">
+				{#each $allTabs as tab}
+					<div
+						class="group flex items-center gap-2 px-3 sm:px-4 py-2.5 border-r border-[#2a2a2a] min-w-[100px] sm:min-w-[120px] max-w-[160px] sm:max-w-[200px] transition-colors cursor-pointer {tab.id === $activeTabId
+							? 'bg-[#0d0d0d] text-white'
+							: 'text-gray-400 hover:text-white hover:bg-[#1a1a1a]'}"
+						on:click={() => tabs.setActiveTab(tab.id)}
+						on:keypress={(e) => e.key === 'Enter' && tabs.setActiveTab(tab.id)}
+						role="tab"
+						tabindex="0"
+						aria-selected={tab.id === $activeTabId}
+					>
+						<span class="flex-1 truncate text-xs sm:text-sm text-left">{tab.title}</span>
+						{#if tab.isStreaming}
+							<span class="w-2 h-2 bg-violet-500 rounded-full animate-pulse flex-shrink-0"></span>
+						{:else if !tab.wsConnected}
+							<span class="w-2 h-2 bg-yellow-500 rounded-full flex-shrink-0" title="Disconnected"></span>
+						{/if}
+						{#if $allTabs.length > 1}
+							<button
+								on:click|stopPropagation={(e) => handleCloseTab(e, tab.id)}
+								class="opacity-0 group-hover:opacity-100 p-0.5 hover:bg-[#333] rounded transition-opacity flex-shrink-0"
+								title="Close tab"
+								aria-label="Close tab"
+							>
+								<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+								</svg>
+							</button>
+						{/if}
+					</div>
+				{/each}
+			</div>
+
+			<!-- Add Tab Button -->
+			<button
+				on:click={handleNewTab}
+				class="p-3 text-gray-400 hover:text-white hover:bg-[#1a1a1a] transition-colors"
+				title="New tab"
+			>
+				<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+				</svg>
+			</button>
+		</div>
+
+		<!-- Active Tab Content -->
+		{#if $activeTab}
+			{@const currentTab = $activeTab}
+			{@const tabId = currentTab.id}
+
+			<!-- Profile/Project Selector Bar -->
+			<div class="bg-[#171717] border-b border-[#2a2a2a] px-2 sm:px-4 py-2 flex flex-wrap sm:flex-nowrap items-center gap-2 sm:gap-4">
+				<!-- Profile Selector -->
+				<div class="flex items-center gap-1 sm:gap-2">
+					<span class="text-xs text-gray-500 hidden sm:inline">Profile:</span>
+					<select
+						value={currentTab.profile}
+						on:change={(e) => setTabProfile(tabId, e.currentTarget.value)}
+						class="bg-[#1a1a1a] text-xs sm:text-sm text-gray-300 border-0 rounded px-2 py-1 focus:ring-1 focus:ring-violet-500 max-w-[100px] sm:max-w-none"
+						aria-label="Profile"
+					>
+						{#each $profiles as profile}
+							<option value={profile.id}>{profile.name}</option>
+						{/each}
+					</select>
+					<button on:click={() => (showProfileModal = true)} class="text-gray-500 hover:text-white p-1" aria-label="Profile settings">
 						<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 							<path
 								stroke-linecap="round"
@@ -598,272 +643,270 @@
 							/>
 							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
 						</svg>
-					</a>
-					<button on:click={handleLogout} class="text-gray-500 hover:text-white text-sm">Logout</button>
+					</button>
 				</div>
-			</div>
-		</div>
-	</aside>
 
-	<!-- Main Content -->
-	<main class="flex-1 flex flex-col min-w-0 bg-[#0d0d0d]">
-		<!-- Mobile Header -->
-		<header class="lg:hidden bg-[#171717] border-b border-[#2a2a2a] px-4 py-3 flex items-center justify-between">
-			<button class="text-gray-400 hover:text-white" on:click={() => (sidebarOpen = true)}>
-				<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
-				</svg>
-			</button>
-			<span class="font-semibold text-white">AI Hub</span>
-			<button on:click={handleNewChat} class="text-gray-400 hover:text-white">
-				<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-				</svg>
-			</button>
-		</header>
-
-		<!-- Messages Area -->
-		<div bind:this={messagesContainer} on:scroll={handleScroll} class="flex-1 overflow-y-auto">
-			{#if $messages.length === 0}
-				<!-- Empty State -->
-				<div class="h-full flex items-center justify-center">
-					<div class="text-center max-w-md px-6">
-						<div class="w-16 h-16 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-violet-500/20 to-purple-600/20 flex items-center justify-center">
-							<svg class="w-8 h-8 text-violet-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-								<path
-									stroke-linecap="round"
-									stroke-linejoin="round"
-									stroke-width="1.5"
-									d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
-								/>
-							</svg>
-						</div>
-						<h2 class="text-xl font-semibold text-white mb-2">Start a Conversation</h2>
-						<p class="text-gray-500 mb-4">Ask Claude anything - code, questions, ideas, or just chat.</p>
-						<div class="text-sm text-gray-600">
-							<span class="text-gray-500">Profile:</span>
-							<span class="text-gray-400 ml-1">{$profiles.find((p) => p.id === $selectedProfile)?.name || $selectedProfile}</span>
-						</div>
-					</div>
+				<!-- Project Selector -->
+				<div class="flex items-center gap-1 sm:gap-2">
+					<span class="text-xs text-gray-500 hidden sm:inline">Project:</span>
+					<select
+						value={currentTab.project}
+						on:change={(e) => setTabProject(tabId, e.currentTarget.value)}
+						class="bg-[#1a1a1a] text-xs sm:text-sm text-gray-300 border-0 rounded px-2 py-1 focus:ring-1 focus:ring-violet-500 max-w-[100px] sm:max-w-none"
+						aria-label="Project"
+					>
+						<option value="">Default</option>
+						{#each $projects as project}
+							<option value={project.id}>{project.name}</option>
+						{/each}
+					</select>
+					<button on:click={() => (showProjectModal = true)} class="text-gray-500 hover:text-white p-1" aria-label="Project settings">
+						<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path
+								stroke-linecap="round"
+								stroke-linejoin="round"
+								stroke-width="2"
+								d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"
+							/>
+						</svg>
+					</button>
 				</div>
-			{:else}
-				<!-- Messages -->
-				<div class="max-w-3xl mx-auto px-4 py-6 space-y-6">
-					{#each $messages as message, idx}
-						<!-- User Message -->
-						{#if message.role === 'user'}
-							<div class="flex flex-col">
-								<div class="text-xs text-gray-500 mb-1.5 font-medium">You</div>
-								<div class="bg-[#1a1a1a] rounded-2xl px-4 py-3 text-gray-100">
-									<p class="whitespace-pre-wrap">{message.content}</p>
-								</div>
-							</div>
-						<!-- Assistant Text Message -->
-						{:else if message.type === 'text' || !message.type}
-							<div class="flex flex-col">
-								<div class="text-xs text-violet-400 mb-1.5 font-medium flex items-center gap-2">
-									Claude
-									{#if message.streaming}
-										<span class="flex gap-0.5">
-											<span class="w-1.5 h-1.5 bg-violet-400 rounded-full animate-bounce" style="animation-delay: 0ms"></span>
-											<span class="w-1.5 h-1.5 bg-violet-400 rounded-full animate-bounce" style="animation-delay: 150ms"></span>
-											<span class="w-1.5 h-1.5 bg-violet-400 rounded-full animate-bounce" style="animation-delay: 300ms"></span>
-										</span>
-									{/if}
-								</div>
-								<div class="prose prose-invert prose-sm max-w-none text-gray-200">
-									{#if message.content}
-										{@html renderMarkdown(message.content)}
-									{:else if message.streaming}
-										<div class="flex gap-1 py-2">
-											<span class="w-2 h-2 bg-gray-600 rounded-full animate-pulse"></span>
-											<span class="w-2 h-2 bg-gray-600 rounded-full animate-pulse" style="animation-delay: 200ms"></span>
-											<span class="w-2 h-2 bg-gray-600 rounded-full animate-pulse" style="animation-delay: 400ms"></span>
-										</div>
-									{/if}
-								</div>
 
-								<!-- Metadata -->
-								{#if message.metadata && !message.streaming}
-									<div class="mt-3 text-xs text-gray-600 flex items-center gap-3">
-										{#if message.metadata.total_cost_usd}
-											<span>{formatCost(message.metadata.total_cost_usd)}</span>
-										{/if}
-										{#if message.metadata.duration_ms}
-											<span>{((message.metadata.duration_ms) / 1000).toFixed(1)}s</span>
-										{/if}
-									</div>
-								{/if}
-							</div>
-						<!-- Tool Use -->
-						{:else if message.type === 'tool_use'}
-							<div class="ml-0">
-								<div
-									class="inline-flex items-center gap-2 bg-[#1e1e2e] border border-[#2a2a2a] rounded-lg px-3 py-2 text-sm"
-								>
-									{#if message.streaming}
-										<svg class="w-4 h-4 text-blue-400 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-											<path
-												stroke-linecap="round"
-												stroke-linejoin="round"
-												stroke-width="2"
-												d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-											/>
-										</svg>
-									{:else}
-										<svg class="w-4 h-4 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-											<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-										</svg>
-									{/if}
-									<span class="text-gray-300 font-medium">{message.toolName}</span>
-									{#if message.toolInput}
-										<details class="inline">
-											<summary class="text-gray-500 cursor-pointer hover:text-gray-400 text-xs">details</summary>
-											<pre class="mt-2 text-xs bg-[#0d0d0d] p-2 rounded overflow-x-auto max-h-32">{JSON.stringify(message.toolInput, null, 2)}</pre>
-										</details>
-									{/if}
-								</div>
-							</div>
-						<!-- Tool Result -->
-						{:else if message.type === 'tool_result'}
-							<div class="ml-0">
-								<details class="bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg overflow-hidden">
-									<summary
-										class="px-3 py-2 cursor-pointer hover:bg-[#222] flex items-center gap-2 text-sm text-gray-400"
-									>
-										<svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-											<path
-												stroke-linecap="round"
-												stroke-linejoin="round"
-												stroke-width="2"
-												d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
-											/>
-										</svg>
-										<span>{message.toolName} result</span>
-									</summary>
-									<pre class="px-3 py-2 text-xs text-gray-400 overflow-x-auto max-h-48 bg-[#0d0d0d] border-t border-[#2a2a2a]">{message.content}</pre>
-								</details>
-							</div>
-						{/if}
-					{/each}
-
-					<!-- Error -->
-					{#if $chatError}
-						<div class="bg-red-500/10 border border-red-500/30 text-red-400 px-4 py-3 rounded-lg flex items-center justify-between">
-							<span class="text-sm">{$chatError}</span>
-							<button on:click={() => chat.clearError()} class="text-red-400 hover:text-red-300">&times;</button>
-						</div>
+				<!-- Connection Status -->
+				<div class="flex-1"></div>
+				<div class="flex items-center gap-1 sm:gap-2 text-xs">
+					{#if currentTab.wsConnected}
+						<span class="flex items-center gap-1 text-green-400">
+							<span class="w-2 h-2 bg-green-400 rounded-full"></span>
+							<span class="hidden sm:inline">Connected</span>
+						</span>
+					{:else}
+						<span class="flex items-center gap-1 text-yellow-400">
+							<span class="w-2 h-2 bg-yellow-400 rounded-full animate-pulse"></span>
+							<span class="hidden sm:inline">Connecting...</span>
+						</span>
 					{/if}
 				</div>
-			{/if}
-		</div>
+			</div>
 
-		<!-- Input Area -->
-		<div class="border-t border-[#2a2a2a] bg-[#0d0d0d] p-4">
-			<div class="max-w-3xl mx-auto">
-				<!-- Uploaded Files -->
-				{#if uploadedFiles.length > 0}
-					<div class="mb-3 flex flex-wrap gap-2">
-						{#each uploadedFiles as file, index}
-							<div class="flex items-center gap-1.5 bg-[#1a1a1a] text-sm px-2.5 py-1 rounded-lg">
-								<svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+			<!-- Messages Area -->
+			<div
+				bind:this={messagesContainers[tabId]}
+				on:scroll={() => handleScroll(tabId)}
+				class="flex-1 overflow-y-auto"
+			>
+				{#if currentTab.messages.length === 0}
+					<!-- Empty State -->
+					<div class="h-full flex items-center justify-center">
+						<div class="text-center max-w-md px-6">
+							<div class="w-16 h-16 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-violet-500/20 to-purple-600/20 flex items-center justify-center">
+								<svg class="w-8 h-8 text-violet-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 									<path
 										stroke-linecap="round"
 										stroke-linejoin="round"
-										stroke-width="2"
-										d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+										stroke-width="1.5"
+										d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
 									/>
 								</svg>
-								<span class="text-gray-300 truncate max-w-[120px]" title={file.path}>{file.filename}</span>
-								<button on:click={() => removeUploadedFile(index)} class="text-gray-500 hover:text-red-400">
-									<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-									</svg>
-								</button>
 							</div>
+							<h2 class="text-xl font-semibold text-white mb-2">Start a Conversation</h2>
+							<p class="text-gray-500 mb-4">Ask Claude anything - code, questions, ideas, or just chat.</p>
+							<div class="text-sm text-gray-600">
+								<span class="text-gray-500">Profile:</span>
+								<span class="text-gray-400 ml-1">{$profiles.find((p) => p.id === currentTab.profile)?.name || currentTab.profile}</span>
+							</div>
+						</div>
+					</div>
+				{:else}
+					<!-- Messages -->
+					<div class="max-w-3xl mx-auto px-4 py-6 space-y-6">
+						{#each currentTab.messages as message}
+							{#if message.role === 'user'}
+								<div class="flex flex-col">
+									<div class="text-xs text-gray-500 mb-1.5 font-medium">You</div>
+									<div class="bg-[#1a1a1a] rounded-2xl px-4 py-3 text-gray-100">
+										<p class="whitespace-pre-wrap">{message.content}</p>
+									</div>
+								</div>
+							{:else if message.type === 'text' || !message.type}
+								<div class="flex flex-col">
+									<div class="text-xs text-violet-400 mb-1.5 font-medium flex items-center gap-2">
+										Claude
+										{#if message.streaming}
+											<span class="flex gap-0.5">
+												<span class="w-1.5 h-1.5 bg-violet-400 rounded-full animate-bounce" style="animation-delay: 0ms"></span>
+												<span class="w-1.5 h-1.5 bg-violet-400 rounded-full animate-bounce" style="animation-delay: 150ms"></span>
+												<span class="w-1.5 h-1.5 bg-violet-400 rounded-full animate-bounce" style="animation-delay: 300ms"></span>
+											</span>
+										{/if}
+									</div>
+									<div class="prose prose-invert prose-sm max-w-none text-gray-200">
+										{#if message.content}
+											{@html renderMarkdown(message.content)}
+										{:else if message.streaming}
+											<div class="flex gap-1 py-2">
+												<span class="w-2 h-2 bg-gray-600 rounded-full animate-pulse"></span>
+												<span class="w-2 h-2 bg-gray-600 rounded-full animate-pulse" style="animation-delay: 200ms"></span>
+												<span class="w-2 h-2 bg-gray-600 rounded-full animate-pulse" style="animation-delay: 400ms"></span>
+											</div>
+										{/if}
+									</div>
+									{#if message.metadata && !message.streaming}
+										<div class="mt-3 text-xs text-gray-600 flex items-center gap-3">
+											{#if message.metadata.total_cost_usd}
+												<span>{formatCost(message.metadata.total_cost_usd as number)}</span>
+											{/if}
+											{#if message.metadata.duration_ms}
+												<span>{((message.metadata.duration_ms as number) / 1000).toFixed(1)}s</span>
+											{/if}
+										</div>
+									{/if}
+								</div>
+							{:else if message.type === 'tool_use'}
+								<div class="ml-0">
+									<div class="inline-flex items-center gap-2 bg-[#1e1e2e] border border-[#2a2a2a] rounded-lg px-3 py-2 text-sm">
+										{#if message.streaming}
+											<svg class="w-4 h-4 text-blue-400 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+												<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+											</svg>
+										{:else}
+											<svg class="w-4 h-4 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+												<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+											</svg>
+										{/if}
+										<span class="text-gray-300 font-medium">{message.toolName}</span>
+										{#if message.toolInput}
+											<details class="inline">
+												<summary class="text-gray-500 cursor-pointer hover:text-gray-400 text-xs">details</summary>
+												<pre class="mt-2 text-xs bg-[#0d0d0d] p-2 rounded overflow-x-auto max-h-32">{JSON.stringify(message.toolInput, null, 2)}</pre>
+											</details>
+										{/if}
+									</div>
+								</div>
+							{:else if message.type === 'tool_result'}
+								<div class="ml-0">
+									<details class="bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg overflow-hidden">
+										<summary class="px-3 py-2 cursor-pointer hover:bg-[#222] flex items-center gap-2 text-sm text-gray-400">
+											<svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+												<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+											</svg>
+											<span>{message.toolName} result</span>
+										</summary>
+										<pre class="px-3 py-2 text-xs text-gray-400 overflow-x-auto max-h-48 bg-[#0d0d0d] border-t border-[#2a2a2a]">{message.content}</pre>
+									</details>
+								</div>
+							{/if}
 						{/each}
-					</div>
-				{/if}
 
-				<!-- Hidden file input -->
-				<input type="file" bind:this={fileInput} on:change={handleFileSelect} class="hidden" multiple />
-
-				<!-- Input Form -->
-				<form on:submit|preventDefault={handleSubmit} class="flex items-center gap-2">
-					<!-- File Button -->
-					<button
-						type="button"
-						on:click={triggerFileUpload}
-						class="flex-shrink-0 w-10 h-10 flex items-center justify-center text-gray-500 hover:text-white hover:bg-[#2a2a2a] rounded-lg transition-colors disabled:opacity-50"
-						disabled={$isStreaming || !$claudeAuthenticated || isUploading}
-						title={$selectedProject ? 'Upload file' : 'Select a project to upload files'}
-					>
-						{#if isUploading}
-							<svg class="w-5 h-5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-								<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-								<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-							</svg>
-						{:else}
-							<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
-							</svg>
+						<!-- Error -->
+						{#if currentTab.error}
+							<div class="bg-red-500/10 border border-red-500/30 text-red-400 px-4 py-3 rounded-lg flex items-center justify-between">
+								<span class="text-sm">{currentTab.error}</span>
+								<button on:click={() => tabs.clearTabError(tabId)} class="text-red-400 hover:text-red-300">&times;</button>
+							</div>
 						{/if}
-					</button>
-
-					<!-- Textarea -->
-					<div class="flex-1 relative">
-						<textarea
-							bind:this={textarea}
-							bind:value={prompt}
-							on:keydown={handleKeyDown}
-							on:input={autoResize}
-							placeholder="Message Claude..."
-							class="w-full bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl px-4 py-2.5 text-white placeholder-gray-500 resize-none focus:outline-none focus:ring-1 focus:ring-violet-500 focus:border-violet-500 min-h-[40px] max-h-[200px] leading-normal"
-							rows="1"
-							disabled={$isStreaming || !$claudeAuthenticated}
-						></textarea>
 					</div>
-
-					<!-- Send/Stop Button -->
-					{#if $isStreaming}
-						<button
-							type="button"
-							on:click={() => chat.stopGeneration()}
-							class="flex-shrink-0 w-10 h-10 flex items-center justify-center bg-red-500/20 text-red-400 hover:bg-red-500/30 rounded-lg transition-colors"
-						>
-							<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" />
-							</svg>
-						</button>
-					{:else}
-						<button
-							type="submit"
-							class="flex-shrink-0 w-10 h-10 flex items-center justify-center bg-violet-600 hover:bg-violet-500 text-white rounded-lg transition-colors disabled:opacity-50 disabled:hover:bg-violet-600"
-							disabled={!prompt.trim() || !$claudeAuthenticated}
-						>
-							<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-							</svg>
-						</button>
-					{/if}
-				</form>
-
-				<!-- Hints -->
-				{#if !$claudeAuthenticated}
-					<p class="mt-2 text-xs text-amber-500">
-						Claude CLI not authenticated. Run <code class="bg-[#1a1a1a] px-1.5 py-0.5 rounded">docker exec -it ai-hub claude login</code>
-					</p>
 				{/if}
 			</div>
-		</div>
+
+			<!-- Input Area -->
+			<div class="border-t border-[#2a2a2a] bg-[#0d0d0d] p-4">
+				<div class="max-w-3xl mx-auto">
+					<!-- Uploaded Files -->
+					{#if (tabUploadedFiles[tabId] || []).length > 0}
+						<div class="mb-3 flex flex-wrap gap-2">
+							{#each tabUploadedFiles[tabId] as file, index}
+								<div class="flex items-center gap-1.5 bg-[#1a1a1a] text-sm px-2.5 py-1 rounded-lg">
+									<svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+									</svg>
+									<span class="text-gray-300 truncate max-w-[120px]" title={file.path}>{file.filename}</span>
+									<button on:click={() => removeUploadedFile(tabId, index)} class="text-gray-500 hover:text-red-400">
+										<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+											<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+										</svg>
+									</button>
+								</div>
+							{/each}
+						</div>
+					{/if}
+
+					<!-- Hidden file input -->
+					<input type="file" bind:this={fileInput} on:change={handleFileSelect} class="hidden" multiple />
+
+					<!-- Input Form -->
+					<form on:submit|preventDefault={() => handleSubmit(tabId)} class="flex items-center gap-2">
+						<!-- File Button -->
+						<button
+							type="button"
+							on:click={triggerFileUpload}
+							class="flex-shrink-0 w-10 h-10 flex items-center justify-center text-gray-500 hover:text-white hover:bg-[#2a2a2a] rounded-lg transition-colors disabled:opacity-50"
+							disabled={currentTab.isStreaming || !$claudeAuthenticated || isUploading}
+							title={currentTab.project ? 'Upload file' : 'Select a project to upload files'}
+						>
+							{#if isUploading}
+								<svg class="w-5 h-5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+									<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+								</svg>
+							{:else}
+								<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+								</svg>
+							{/if}
+						</button>
+
+						<!-- Textarea -->
+						<div class="flex-1 relative">
+							<textarea
+								bind:this={textareas[tabId]}
+								value={getTabPrompt(tabId)}
+								on:input={(e) => {
+									setTabPrompt(tabId, e.currentTarget.value);
+									autoResize(tabId);
+								}}
+								on:keydown={(e) => handleKeyDown(e, tabId)}
+								placeholder="Message Claude..."
+								class="w-full bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl px-4 py-2.5 text-white placeholder-gray-500 resize-none focus:outline-none focus:ring-1 focus:ring-violet-500 focus:border-violet-500 min-h-[40px] max-h-[200px] leading-normal"
+								rows="1"
+								disabled={currentTab.isStreaming || !$claudeAuthenticated}
+							></textarea>
+						</div>
+
+						<!-- Send/Stop Button -->
+						{#if currentTab.isStreaming}
+							<button
+								type="button"
+								on:click={() => tabs.stopGeneration(tabId)}
+								class="flex-shrink-0 w-10 h-10 flex items-center justify-center bg-red-500/20 text-red-400 hover:bg-red-500/30 rounded-lg transition-colors"
+							>
+								<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" />
+								</svg>
+							</button>
+						{:else}
+							<button
+								type="submit"
+								class="flex-shrink-0 w-10 h-10 flex items-center justify-center bg-violet-600 hover:bg-violet-500 text-white rounded-lg transition-colors disabled:opacity-50 disabled:hover:bg-violet-600"
+								disabled={!getTabPrompt(tabId).trim() || !$claudeAuthenticated}
+							>
+								<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+								</svg>
+							</button>
+						{/if}
+					</form>
+				</div>
+			</div>
+		{/if}
 	</main>
 </div>
 
 <!-- Profile Modal -->
 {#if showProfileModal}
-	<div class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
-		<div class="bg-[#171717] border border-[#2a2a2a] rounded-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+	<div class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" on:click={() => (showProfileModal = false)}>
+		<div class="bg-[#1a1a1a] rounded-xl w-full max-w-lg max-h-[80vh] overflow-y-auto" on:click|stopPropagation>
 			<div class="p-4 border-b border-[#2a2a2a] flex items-center justify-between">
 				<h2 class="text-lg font-semibold text-white">
 					{showNewProfileForm ? (editingProfile ? 'Edit Profile' : 'New Profile') : 'Profiles'}
@@ -882,18 +925,17 @@
 				</button>
 			</div>
 
-			<div class="flex-1 overflow-y-auto p-4">
+			<div class="p-4">
 				{#if showNewProfileForm}
-					<!-- Profile Form -->
 					<div class="space-y-4">
 						<div class="grid grid-cols-2 gap-4">
 							<div>
 								<label class="block text-xs text-gray-500 mb-1">ID</label>
 								<input
 									bind:value={profileForm.id}
-									class="w-full bg-[#2a2a2a] border-0 rounded-lg px-3 py-2 text-sm text-white"
-									placeholder="my-profile"
 									disabled={!!editingProfile}
+									class="w-full bg-[#2a2a2a] border-0 rounded-lg px-3 py-2 text-sm text-white disabled:opacity-50"
+									placeholder="my-profile"
 								/>
 							</div>
 							<div>
@@ -920,8 +962,7 @@
 								<label class="block text-xs text-gray-500 mb-1">Permission Mode</label>
 								<select bind:value={profileForm.permission_mode} class="w-full bg-[#2a2a2a] border-0 rounded-lg px-3 py-2 text-sm text-white">
 									<option value="default">Default</option>
-									<option value="acceptEdits">Accept Edits</option>
-									<option value="plan">Plan Only</option>
+									<option value="plan">Plan</option>
 									<option value="bypassPermissions">Bypass</option>
 								</select>
 							</div>
@@ -931,40 +972,26 @@
 							</div>
 						</div>
 
-						<div class="flex gap-3 pt-4">
-							<button on:click={saveProfile} class="flex-1 py-2 bg-violet-600 hover:bg-violet-500 text-white rounded-lg text-sm font-medium">
-								{editingProfile ? 'Save' : 'Create'}
-							</button>
+						<div class="flex gap-2 pt-4">
 							<button
 								on:click={() => {
 									showNewProfileForm = false;
 									resetProfileForm();
 								}}
-								class="flex-1 py-2 bg-[#2a2a2a] hover:bg-[#3a3a3a] text-white rounded-lg text-sm font-medium"
+								class="flex-1 px-4 py-2 bg-[#2a2a2a] text-gray-300 rounded-lg hover:bg-[#333]"
 							>
 								Cancel
 							</button>
+							<button on:click={saveProfile} class="flex-1 px-4 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-500"> Save </button>
 						</div>
 					</div>
 				{:else}
-					<!-- Profile List -->
-					<button on:click={openNewProfileForm} class="w-full py-2 mb-4 bg-[#2a2a2a] hover:bg-[#3a3a3a] text-white rounded-lg text-sm font-medium">
-						+ New Profile
-					</button>
-
-					<div class="space-y-2">
+					<div class="space-y-2 mb-4">
 						{#each $profiles as profile}
-							<div class="p-3 bg-[#222] rounded-lg flex items-center justify-between">
+							<div class="flex items-center justify-between p-3 bg-[#252525] rounded-lg">
 								<div>
-									<div class="flex items-center gap-2">
-										<span class="text-sm text-white font-medium">{profile.name}</span>
-										{#if profile.is_builtin}
-											<span class="text-[10px] px-1.5 py-0.5 bg-violet-500/20 text-violet-400 rounded">Built-in</span>
-										{/if}
-									</div>
-									{#if profile.description}
-										<p class="text-xs text-gray-500 mt-0.5">{profile.description}</p>
-									{/if}
+									<p class="text-sm text-white font-medium">{profile.name}</p>
+									<p class="text-xs text-gray-500">{profile.id}</p>
 								</div>
 								{#if !profile.is_builtin}
 									<div class="flex gap-1">
@@ -983,6 +1010,9 @@
 							</div>
 						{/each}
 					</div>
+					<button on:click={openNewProfileForm} class="w-full py-2 border border-dashed border-[#2a2a2a] rounded-lg text-gray-500 hover:text-white hover:border-gray-500">
+						+ New Profile
+					</button>
 				{/if}
 			</div>
 		</div>
@@ -991,8 +1021,8 @@
 
 <!-- Project Modal -->
 {#if showProjectModal}
-	<div class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
-		<div class="bg-[#171717] border border-[#2a2a2a] rounded-2xl w-full max-w-lg max-h-[80vh] flex flex-col">
+	<div class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" on:click={() => (showProjectModal = false)}>
+		<div class="bg-[#1a1a1a] rounded-xl w-full max-w-lg max-h-[80vh] overflow-y-auto" on:click|stopPropagation>
 			<div class="p-4 border-b border-[#2a2a2a] flex items-center justify-between">
 				<h2 class="text-lg font-semibold text-white">Projects</h2>
 				<button
@@ -1008,7 +1038,7 @@
 				</button>
 			</div>
 
-			<div class="flex-1 overflow-y-auto p-4">
+			<div class="p-4">
 				{#if showNewProjectForm}
 					<div class="space-y-4">
 						<div>
@@ -1023,41 +1053,30 @@
 							<label class="block text-xs text-gray-500 mb-1">Description</label>
 							<textarea bind:value={newProjectDescription} class="w-full bg-[#2a2a2a] border-0 rounded-lg px-3 py-2 text-sm text-white resize-none" rows="2" placeholder="Optional"></textarea>
 						</div>
-						<p class="text-xs text-gray-500">
-							Files: <code class="bg-[#0d0d0d] px-1 rounded">/workspace/{newProjectId || 'project-id'}/</code>
-						</p>
-						<div class="flex gap-3">
-							<button on:click={createProject} class="flex-1 py-2 bg-violet-600 hover:bg-violet-500 text-white rounded-lg text-sm font-medium">Create</button>
-							<button on:click={() => (showNewProjectForm = false)} class="flex-1 py-2 bg-[#2a2a2a] hover:bg-[#3a3a3a] text-white rounded-lg text-sm font-medium">Cancel</button>
+						<div class="flex gap-2">
+							<button on:click={() => (showNewProjectForm = false)} class="flex-1 px-4 py-2 bg-[#2a2a2a] text-gray-300 rounded-lg hover:bg-[#333]"> Cancel </button>
+							<button on:click={createProject} class="flex-1 px-4 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-500"> Create </button>
 						</div>
 					</div>
 				{:else}
-					<button on:click={() => (showNewProjectForm = true)} class="w-full py-2 mb-4 bg-[#2a2a2a] hover:bg-[#3a3a3a] text-white rounded-lg text-sm font-medium">
+					<div class="space-y-2 mb-4">
+						{#each $projects as project}
+							<div class="flex items-center justify-between p-3 bg-[#252525] rounded-lg">
+								<div>
+									<p class="text-sm text-white font-medium">{project.name}</p>
+									<p class="text-xs text-gray-600 mt-0.5">/workspace/{project.path}/</p>
+								</div>
+								<button on:click={() => deleteProject(project.id)} class="text-gray-500 hover:text-red-400">
+									<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+									</svg>
+								</button>
+							</div>
+						{/each}
+					</div>
+					<button on:click={() => (showNewProjectForm = true)} class="w-full py-2 border border-dashed border-[#2a2a2a] rounded-lg text-gray-500 hover:text-white hover:border-gray-500">
 						+ New Project
 					</button>
-
-					{#if $projects.length === 0}
-						<p class="text-sm text-gray-500 text-center py-6">No projects yet</p>
-					{:else}
-						<div class="space-y-2">
-							{#each $projects as project}
-								<div class="p-3 bg-[#222] rounded-lg flex items-center justify-between">
-									<div>
-										<span class="text-sm text-white font-medium">{project.name}</span>
-										{#if project.description}
-											<p class="text-xs text-gray-500 mt-0.5">{project.description}</p>
-										{/if}
-										<p class="text-xs text-gray-600 mt-0.5">/workspace/{project.path}/</p>
-									</div>
-									<button on:click={() => deleteProject(project.id)} class="text-gray-500 hover:text-red-400">
-										<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-											<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-										</svg>
-									</button>
-								</div>
-							{/each}
-						</div>
-					{/if}
 				{/if}
 			</div>
 		</div>
@@ -1065,42 +1084,11 @@
 {/if}
 
 <style>
-	.prose :global(pre) {
-		@apply bg-[#0d0d0d] rounded-lg p-3 overflow-x-auto my-3;
+	.scrollbar-hide::-webkit-scrollbar {
+		display: none;
 	}
-
-	.prose :global(code) {
-		@apply bg-[#1a1a1a] px-1.5 py-0.5 rounded text-violet-300;
-	}
-
-	.prose :global(pre code) {
-		@apply bg-transparent p-0;
-	}
-
-	.prose :global(p) {
-		@apply mb-3 leading-relaxed;
-	}
-
-	.prose :global(ul),
-	.prose :global(ol) {
-		@apply mb-3 pl-5;
-	}
-
-	.prose :global(li) {
-		@apply mb-1;
-	}
-
-	.prose :global(h1),
-	.prose :global(h2),
-	.prose :global(h3) {
-		@apply font-semibold mt-4 mb-2;
-	}
-
-	.prose :global(a) {
-		@apply text-violet-400 hover:text-violet-300;
-	}
-
-	.prose :global(blockquote) {
-		@apply border-l-2 border-violet-500 pl-4 italic text-gray-400 my-3;
+	.scrollbar-hide {
+		-ms-overflow-style: none;
+		scrollbar-width: none;
 	}
 </style>
