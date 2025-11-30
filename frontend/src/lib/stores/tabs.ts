@@ -397,14 +397,28 @@ function createTabsStore() {
 
 						const messages = [...tab.messages];
 						const toolUseId = data.tool_use_id as string;
-						const toolUseIdx = messages.findLastIndex(
-							m => m.type === 'tool_use' && (m.toolId === toolUseId || m.streaming)
-						);
-						if (toolUseIdx !== -1) {
-							messages[toolUseIdx] = {
-								...messages[toolUseIdx],
-								streaming: false
-							};
+
+						// Find and update the matching tool_use message
+						// First try to match by toolId, then fall back to any streaming tool
+						let foundByToolId = false;
+						for (let i = messages.length - 1; i >= 0; i--) {
+							const m = messages[i];
+							if (m.type === 'tool_use' && m.toolId === toolUseId) {
+								messages[i] = { ...m, streaming: false };
+								foundByToolId = true;
+								break;
+							}
+						}
+
+						// If not found by toolId, update any streaming tool_use message
+						if (!foundByToolId) {
+							for (let i = messages.length - 1; i >= 0; i--) {
+								const m = messages[i];
+								if (m.type === 'tool_use' && m.streaming) {
+									messages[i] = { ...m, streaming: false };
+									break;
+								}
+							}
 						}
 
 						messages.push({

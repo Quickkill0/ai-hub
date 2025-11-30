@@ -154,13 +154,18 @@
 			const contentUpdated = totalContentLength > (lastContentLengths[tabId] || 0);
 			lastContentLengths[tabId] = totalContentLength;
 
-			const autoScroll = shouldAutoScroll[tabId] !== false;
+			// Check if we should auto-scroll BEFORE the setTimeout
+			// Default to true for new tabs, and check current position
+			const isCurrentlyNearBottom = isNearBottom(container, 150);
+			const autoScroll = shouldAutoScroll[tabId] !== false && isCurrentlyNearBottom;
+
 			if ((newMessageArrived || (contentUpdated && $activeTab.isStreaming)) && autoScroll) {
-				setTimeout(() => {
-					if (container && isNearBottom(container, 150)) {
+				// Use requestAnimationFrame for smoother scrolling
+				requestAnimationFrame(() => {
+					if (container) {
 						container.scrollTop = container.scrollHeight;
 					}
-				}, 10);
+				});
 			}
 		}
 	}
@@ -233,6 +238,11 @@
 		if (days === 1) return 'Yesterday';
 		if (days < 7) return `${days}d ago`;
 		return date.toLocaleDateString();
+	}
+
+	function formatSessionCost(cost: number | undefined | null): string {
+		if (cost === undefined || cost === null || cost === 0) return '';
+		return `$${cost.toFixed(4)}`;
 	}
 
 	function truncateTitle(title: string | null, maxLength: number = 35): string {
@@ -579,7 +589,9 @@
 								>
 									<div class="flex-1 min-w-0">
 										<p class="text-sm text-foreground truncate">{truncateTitle(session.title)}</p>
-										<p class="text-xs text-muted-foreground">{formatDate(session.updated_at)}</p>
+										<p class="text-xs text-muted-foreground">
+											{formatDate(session.updated_at)}{#if session.total_cost_usd}<span class="text-green-500 ml-2">{formatSessionCost(session.total_cost_usd)}</span>{/if}
+										</p>
 									</div>
 									<button
 										on:click|stopPropagation={(e) => deleteSession(e, session.id)}
@@ -629,7 +641,9 @@
 								>
 									<div class="flex-1 min-w-0">
 										<p class="text-sm text-foreground truncate">{truncateTitle(session.title)}</p>
-										<p class="text-xs text-muted-foreground">{formatDate(session.updated_at)}</p>
+										<p class="text-xs text-muted-foreground">
+											{formatDate(session.updated_at)}{#if session.total_cost_usd}<span class="text-green-500 ml-2">{formatSessionCost(session.total_cost_usd)}</span>{/if}
+										</p>
 									</div>
 									<button
 										on:click|stopPropagation={(e) => deleteSession(e, session.id)}
