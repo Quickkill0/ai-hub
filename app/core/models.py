@@ -168,13 +168,17 @@ class Project(ProjectBase):
 
 class SessionMessage(BaseModel):
     """A message in a session"""
-    id: int
+    id: Any  # Can be int from DB or string from JSONL
     role: str  # user, assistant, system, tool
     content: str
-    tool_name: Optional[str] = None
-    tool_input: Optional[Dict[str, Any]] = None
+    type: Optional[str] = None  # text, tool_use, tool_result - critical for rendering
+    tool_name: Optional[str] = None  # snake_case for DB compatibility
+    tool_input: Optional[Dict[str, Any]] = None  # snake_case for DB compatibility
+    toolName: Optional[str] = None  # camelCase for frontend compatibility
+    toolInput: Optional[Dict[str, Any]] = None  # camelCase for frontend compatibility
+    toolId: Optional[str] = None  # Tool ID for matching tool_use to tool_result
     metadata: Optional[Dict[str, Any]] = None
-    created_at: datetime
+    created_at: Optional[datetime] = None  # Optional for JSONL messages without timestamp
 
 
 class SessionBase(BaseModel):

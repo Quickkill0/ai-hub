@@ -98,6 +98,9 @@ async def list_sessions(
 @router.get("/{session_id}", response_model=SessionWithMessages)
 async def get_session(request: Request, session_id: str, token: str = Depends(require_auth)):
     """Get a session with its message history. API users can only access their assigned sessions."""
+    import logging
+    logger = logging.getLogger(__name__)
+
     session = database.get_session(session_id)
     if not session:
         raise HTTPException(
@@ -112,39 +115,55 @@ async def get_session(request: Request, session_id: str, token: str = Depends(re
     messages = []
 
     if sdk_session_id:
-        from app.core.jsonl_parser import parse_session_history
-        from app.core.config import settings
+        try:
+            from app.core.jsonl_parser import parse_session_history
+            from app.core.config import settings
 
-        # Get working dir from project if available
-        working_dir = "/workspace"
-        project_id = session.get("project_id")
-        if project_id:
-            project = database.get_project(project_id)
-            if project:
-                working_dir = str(settings.workspace_dir / project["path"])
+            # Get working dir from project if available
+            working_dir = "/workspace"
+            project_id = session.get("project_id")
+            if project_id:
+                project = database.get_project(project_id)
+                if project:
+                    working_dir = str(settings.workspace_dir / project["path"])
 
-        jsonl_messages = parse_session_history(sdk_session_id, working_dir)
-        if jsonl_messages:
-            # Transform to expected format for SessionWithMessages
-            # Use camelCase for frontend compatibility (toolName, toolInput, toolId)
-            for i, m in enumerate(jsonl_messages):
-                messages.append({
-                    "id": i,
-                    "role": m.get("role", "user"),
-                    "content": m.get("content", ""),
-                    "type": m.get("type"),  # Critical for tool_use/tool_result rendering
-                    "toolName": m.get("toolName"),  # camelCase for frontend
-                    "toolInput": m.get("toolInput"),  # camelCase for frontend
-                    "toolId": m.get("toolId"),
-                    "tool_name": m.get("toolName"),  # Also include snake_case for compatibility
-                    "tool_input": m.get("toolInput"),  # Also include snake_case for compatibility
-                    "metadata": m.get("metadata"),
-                    "created_at": m.get("metadata", {}).get("timestamp") or session.get("created_at")
-                })
+            jsonl_messages = parse_session_history(sdk_session_id, working_dir)
+            if jsonl_messages:
+                # Transform to expected format for SessionWithMessages
+                # Use camelCase for frontend compatibility (toolName, toolInput, toolId)
+                for i, m in enumerate(jsonl_messages):
+                    messages.append({
+                        "id": m.get("id", i),
+                        "role": m.get("role", "user"),
+                        "content": m.get("content", ""),
+                        "type": m.get("type"),  # Critical for tool_use/tool_result rendering
+                        "toolName": m.get("toolName"),  # camelCase for frontend
+                        "toolInput": m.get("toolInput"),  # camelCase for frontend
+                        "toolId": m.get("toolId"),
+                        "tool_name": m.get("toolName"),  # Also include snake_case for compatibility
+                        "tool_input": m.get("toolInput"),  # Also include snake_case for compatibility
+                        "metadata": m.get("metadata"),
+                        "created_at": m.get("metadata", {}).get("timestamp") or session.get("created_at")
+                    })
+        except Exception as e:
+            # Log the error but don't fail - fall back to database
+            logger.error(f"Failed to parse JSONL for session {session_id}: {e}")
+            messages = []
 
-    # Fall back to database if JSONL not available
+    # Fall back to database if JSONL not available or failed to parse
     if not messages:
-        messages = database.get_session_messages(session_id)
+        db_messages = database.get_session_messages(session_id)
+        # Transform DB messages to include type field for frontend compatibility
+        for m in db_messages:
+            msg = dict(m)
+            # Infer type from role for legacy DB messages
+            if msg.get("tool_name"):
+                msg["type"] = "tool_use"
+                msg["toolName"] = msg.get("tool_name")
+                msg["toolInput"] = msg.get("tool_input")
+            elif msg.get("role") == "assistant":
+                msg["type"] = "text"
+            messages.append(msg)
 
     session["messages"] = messages
 

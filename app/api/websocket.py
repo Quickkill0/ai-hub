@@ -243,26 +243,32 @@ async def chat_websocket(
                                 messages = []
 
                                 if sdk_session_id:
-                                    from app.core.jsonl_parser import parse_session_history
-                                    # Get working dir from project if available
-                                    working_dir = "/workspace"
-                                    project_id = session.get("project_id")
-                                    if project_id:
-                                        project = database.get_project(project_id)
-                                        if project:
-                                            from app.core.config import settings
-                                            working_dir = str(settings.workspace_dir / project["path"])
+                                    try:
+                                        from app.core.jsonl_parser import parse_session_history
+                                        # Get working dir from project if available
+                                        working_dir = "/workspace"
+                                        project_id = session.get("project_id")
+                                        if project_id:
+                                            project = database.get_project(project_id)
+                                            if project:
+                                                from app.core.config import settings
+                                                working_dir = str(settings.workspace_dir / project["path"])
 
-                                    messages = parse_session_history(sdk_session_id, working_dir)
-                                    logger.info(f"Loaded {len(messages)} messages from JSONL for session {session_id}")
+                                        messages = parse_session_history(sdk_session_id, working_dir)
+                                        logger.info(f"Loaded {len(messages)} messages from JSONL for session {session_id}")
+                                    except Exception as e:
+                                        logger.error(f"Failed to parse JSONL for session {session_id}: {e}")
+                                        messages = []
 
-                                # Fall back to database if JSONL not available
+                                # Fall back to database if JSONL not available or failed
                                 if not messages:
                                     db_messages = database.get_session_messages(session_id)
                                     # Transform DB messages to streaming format
                                     for m in db_messages:
                                         msg_type_value = None
-                                        if m.get("role") == "assistant":
+                                        if m.get("tool_name"):
+                                            msg_type_value = "tool_use"
+                                        elif m.get("role") == "assistant":
                                             msg_type_value = "text"
                                         elif m.get("role") in ("tool_use", "tool_result"):
                                             msg_type_value = m.get("role")
@@ -273,6 +279,7 @@ async def chat_websocket(
                                             "content": m.get("content", ""),
                                             "type": msg_type_value,
                                             "toolName": m.get("tool_name"),
+                                            "toolId": m.get("tool_id"),
                                             "toolInput": m.get("tool_input"),
                                             "metadata": m.get("metadata"),
                                             "streaming": False
