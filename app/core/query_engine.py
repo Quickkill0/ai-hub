@@ -251,6 +251,7 @@ async def execute_query(
 
     # Execute query and collect response
     response_text = []
+    tool_messages = []  # Collect tool use/result messages for storage
     metadata = {}
     sdk_session_id = None
 
@@ -265,6 +266,21 @@ async def execute_query(
                 for block in message.content:
                     if isinstance(block, TextBlock):
                         response_text.append(block.text)
+                    elif isinstance(block, ToolUseBlock):
+                        tool_messages.append({
+                            "type": "tool_use",
+                            "name": block.name,
+                            "tool_id": getattr(block, 'id', None),
+                            "input": block.input
+                        })
+                    elif isinstance(block, ToolResultBlock):
+                        output = str(block.content)[:2000]
+                        tool_messages.append({
+                            "type": "tool_result",
+                            "name": getattr(block, 'name', 'unknown'),
+                            "tool_id": getattr(block, 'tool_use_id', None),
+                            "output": output
+                        })
                 metadata["model"] = message.model
 
             elif isinstance(message, ResultMessage):
@@ -285,6 +301,26 @@ async def execute_query(
             cost_increment=metadata.get("total_cost_usd", 0),
             turn_increment=metadata.get("num_turns", 0)
         )
+
+    # Store tool messages (tool_use and tool_result)
+    for tool_msg in tool_messages:
+        if tool_msg["type"] == "tool_use":
+            database.add_session_message(
+                session_id=session_id,
+                role="tool_use",
+                content=f"Using tool: {tool_msg['name']}",
+                tool_name=tool_msg["name"],
+                tool_input=tool_msg.get("input"),
+                metadata={"tool_id": tool_msg.get("tool_id")}
+            )
+        elif tool_msg["type"] == "tool_result":
+            database.add_session_message(
+                session_id=session_id,
+                role="tool_result",
+                content=tool_msg.get("output", ""),
+                tool_name=tool_msg["name"],
+                metadata={"tool_id": tool_msg.get("tool_id")}
+            )
 
     # Store assistant response
     full_response = "\n".join(response_text)
@@ -466,6 +502,7 @@ async def stream_query(
 
     # Execute query
     response_text = []
+    tool_messages = []  # Collect tool use/result messages for storage
     metadata = {}
     sdk_session_id = resume_id  # Start with existing SDK session ID if resuming
     interrupted = False
@@ -503,6 +540,14 @@ async def stream_query(
                             "input": block.input
                         }
 
+                        # Collect tool use for storage
+                        tool_messages.append({
+                            "type": "tool_use",
+                            "name": block.name,
+                            "tool_id": getattr(block, 'id', None),
+                            "input": block.input
+                        })
+
                         # Broadcast tool use to other devices
                         await sync_engine.broadcast_stream_chunk(
                             session_id=session_id,
@@ -520,6 +565,14 @@ async def stream_query(
                             "name": getattr(block, 'name', 'unknown'),
                             "output": output
                         }
+
+                        # Collect tool result for storage
+                        tool_messages.append({
+                            "type": "tool_result",
+                            "name": getattr(block, 'name', 'unknown'),
+                            "tool_id": getattr(block, 'tool_use_id', None),
+                            "output": output
+                        })
 
                         # Broadcast tool result to other devices
                         await sync_engine.broadcast_stream_chunk(
@@ -574,9 +627,29 @@ async def stream_query(
         )
         logger.info(f"Updated session {session_id}, sdk_session_id={sdk_session_id}")
 
+    # Store tool messages (tool_use and tool_result)
+    for tool_msg in tool_messages:
+        if tool_msg["type"] == "tool_use":
+            database.add_session_message(
+                session_id=session_id,
+                role="tool_use",
+                content=f"Using tool: {tool_msg['name']}",
+                tool_name=tool_msg["name"],
+                tool_input=tool_msg.get("input"),
+                metadata={"tool_id": tool_msg.get("tool_id")}
+            )
+        elif tool_msg["type"] == "tool_result":
+            database.add_session_message(
+                session_id=session_id,
+                role="tool_result",
+                content=tool_msg.get("output", ""),
+                tool_name=tool_msg["name"],
+                metadata={"tool_id": tool_msg.get("tool_id")}
+            )
+
     # Store assistant response
     full_response = "\n".join(response_text)
-    if full_response or interrupted:
+    if full_response or interrupted or tool_messages:
         assistant_msg = database.add_session_message(
             session_id=session_id,
             role="assistant",
@@ -735,6 +808,7 @@ async def _run_background_query(
 
     # Execute query
     response_text = []
+    tool_messages = []  # Collect tool use/result messages for storage
     metadata = {}
     sdk_session_id = resume_id
     interrupted = False
@@ -763,6 +837,14 @@ async def _run_background_query(
                         )
 
                     elif isinstance(block, ToolUseBlock):
+                        # Collect tool use for storage
+                        tool_messages.append({
+                            "type": "tool_use",
+                            "name": block.name,
+                            "tool_id": getattr(block, 'id', None),
+                            "input": block.input
+                        })
+
                         await sync_engine.broadcast_stream_chunk(
                             session_id=session_id,
                             message_id=assistant_msg_id,
@@ -777,6 +859,15 @@ async def _run_background_query(
 
                     elif isinstance(block, ToolResultBlock):
                         output = str(block.content)[:2000]
+
+                        # Collect tool result for storage
+                        tool_messages.append({
+                            "type": "tool_result",
+                            "name": getattr(block, 'name', 'unknown'),
+                            "tool_id": getattr(block, 'tool_use_id', None),
+                            "output": output
+                        })
+
                         await sync_engine.broadcast_stream_chunk(
                             session_id=session_id,
                             message_id=assistant_msg_id,
@@ -830,9 +921,29 @@ async def _run_background_query(
         )
         logger.info(f"[Background] Updated session {session_id}, sdk_session_id={sdk_session_id}")
 
+    # Store tool messages (tool_use and tool_result)
+    for tool_msg in tool_messages:
+        if tool_msg["type"] == "tool_use":
+            database.add_session_message(
+                session_id=session_id,
+                role="tool_use",
+                content=f"Using tool: {tool_msg['name']}",
+                tool_name=tool_msg["name"],
+                tool_input=tool_msg.get("input"),
+                metadata={"tool_id": tool_msg.get("tool_id")}
+            )
+        elif tool_msg["type"] == "tool_result":
+            database.add_session_message(
+                session_id=session_id,
+                role="tool_result",
+                content=tool_msg.get("output", ""),
+                tool_name=tool_msg["name"],
+                metadata={"tool_id": tool_msg.get("tool_id")}
+            )
+
     # Store assistant response
     full_response = "\n".join(response_text)
-    if full_response or interrupted:
+    if full_response or interrupted or tool_messages:
         assistant_msg = database.add_session_message(
             session_id=session_id,
             role="assistant",
@@ -1081,6 +1192,7 @@ async def stream_to_websocket(
 
     # Execute query
     response_text = []
+    tool_messages = []  # Collect tool use/result messages for storage
     metadata = {}
     sdk_session_id = resume_id
     interrupted = False
@@ -1102,6 +1214,14 @@ async def stream_to_websocket(
                         yield {"type": "chunk", "content": block.text}
 
                     elif isinstance(block, ToolUseBlock):
+                        # Collect tool use for storage
+                        tool_messages.append({
+                            "type": "tool_use",
+                            "name": block.name,
+                            "tool_id": getattr(block, 'id', None),
+                            "input": block.input
+                        })
+
                         yield {
                             "type": "tool_use",
                             "name": block.name,
@@ -1111,6 +1231,15 @@ async def stream_to_websocket(
 
                     elif isinstance(block, ToolResultBlock):
                         output = str(block.content)[:2000]
+
+                        # Collect tool result for storage
+                        tool_messages.append({
+                            "type": "tool_result",
+                            "name": getattr(block, 'name', 'unknown'),
+                            "tool_id": getattr(block, 'tool_use_id', None),
+                            "output": output
+                        })
+
                         yield {
                             "type": "tool_result",
                             "name": getattr(block, 'name', 'unknown'),
@@ -1156,9 +1285,29 @@ async def stream_to_websocket(
     )
     logger.info(f"[WS] Updated session {session_id}, sdk_session_id={sdk_session_id}, title={title}")
 
+    # Store tool messages (tool_use and tool_result)
+    for tool_msg in tool_messages:
+        if tool_msg["type"] == "tool_use":
+            database.add_session_message(
+                session_id=session_id,
+                role="tool_use",
+                content=f"Using tool: {tool_msg['name']}",
+                tool_name=tool_msg["name"],
+                tool_input=tool_msg.get("input"),
+                metadata={"tool_id": tool_msg.get("tool_id")}
+            )
+        elif tool_msg["type"] == "tool_result":
+            database.add_session_message(
+                session_id=session_id,
+                role="tool_result",
+                content=tool_msg.get("output", ""),
+                tool_name=tool_msg["name"],
+                metadata={"tool_id": tool_msg.get("tool_id")}
+            )
+
     # Store assistant response
     full_response = "".join(response_text)
-    if full_response:
+    if full_response or tool_messages:
         database.add_session_message(
             session_id=session_id,
             role="assistant",
