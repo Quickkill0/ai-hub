@@ -225,9 +225,16 @@ def parse_session_history(
                         if block.get("type") == "tool_result":
                             msg_counter += 1
                             tool_result = entry.get("toolUseResult")
-                            output = block.get("content", "")
+                            raw_content = block.get("content", "")
                             is_error = block.get("is_error", False)
                             tool_use_id = block.get("tool_use_id")
+
+                            # Handle content that can be string or list of content blocks
+                            # Some tool results have content as [{'type': 'text', 'text': '...'}]
+                            if isinstance(raw_content, list):
+                                output = extract_text_from_content(raw_content)
+                            else:
+                                output = raw_content if isinstance(raw_content, str) else ""
 
                             # Get output from toolUseResult if available
                             # toolUseResult can have different formats depending on the tool:
@@ -255,7 +262,14 @@ def parse_session_history(
                                         output = file_content
                                 # Handle other dict-based results
                                 elif tool_result.get("content"):
-                                    output = tool_result.get("content", "")
+                                    tr_content = tool_result.get("content", "")
+                                    # Content can be string or list of content blocks
+                                    if isinstance(tr_content, list):
+                                        output = extract_text_from_content(tr_content)
+                                    elif isinstance(tr_content, str):
+                                        output = tr_content
+                                    else:
+                                        output = str(tr_content)
                                 elif tool_result.get("result"):
                                     output = str(tool_result.get("result", ""))
                             elif tool_result and isinstance(tool_result, str):
