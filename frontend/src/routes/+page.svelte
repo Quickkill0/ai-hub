@@ -15,6 +15,10 @@
 		adminSessionsFilter,
 		defaultProfile,
 		defaultProject,
+		selectedSessionIds,
+		selectedAdminSessionIds,
+		selectionMode,
+		adminSelectionMode,
 		type ChatMessage,
 		type ChatTab,
 		type ApiUser
@@ -274,6 +278,20 @@
 		if (confirm('Delete this session?')) {
 			await tabs.deleteSession(sessionId);
 		}
+	}
+
+	async function handleBatchDelete(isAdmin: boolean = false) {
+		const count = isAdmin ? $selectedAdminSessionIds.size : $selectedSessionIds.size;
+		if (count === 0) return;
+
+		if (confirm(`Delete ${count} selected session${count > 1 ? 's' : ''}?`)) {
+			await tabs.deleteSelectedSessions(isAdmin);
+		}
+	}
+
+	function handleToggleSelection(e: Event, sessionId: string, isAdmin: boolean = false) {
+		e.stopPropagation();
+		tabs.toggleSessionSelection(sessionId, isAdmin);
 	}
 
 	function handleNewTab() {
@@ -582,31 +600,84 @@
 				<!-- My Chats Tab Content -->
 				{#if sidebarTab === 'my-chats'}
 					<div class="flex-1 overflow-y-auto px-3 pb-3 pt-2">
-						<div class="text-xs text-muted-foreground uppercase tracking-wider px-2 mb-2">History</div>
+						<!-- Header with History label and selection toggle -->
+						<div class="flex items-center justify-between px-2 mb-2">
+							<div class="text-xs text-muted-foreground uppercase tracking-wider">History</div>
+							{#if $sessions.length > 0}
+								<button
+									on:click={() => tabs.toggleSelectionMode(false)}
+									class="text-xs text-muted-foreground hover:text-foreground transition-colors"
+									title={$selectionMode ? 'Exit selection mode' : 'Select multiple'}
+								>
+									{$selectionMode ? 'Cancel' : 'Select'}
+								</button>
+							{/if}
+						</div>
+
+						<!-- Selection Actions Bar -->
+						{#if $selectionMode && $sessions.length > 0}
+							<div class="flex items-center gap-2 px-2 py-2 mb-2 bg-accent rounded-lg">
+								<button
+									on:click={() => {
+										if ($selectedSessionIds.size === $sessions.length) {
+											tabs.deselectAllSessions(false);
+										} else {
+											tabs.selectAllSessions(false);
+										}
+									}}
+									class="text-xs text-muted-foreground hover:text-foreground transition-colors"
+								>
+									{$selectedSessionIds.size === $sessions.length ? 'Deselect All' : 'Select All'}
+								</button>
+								<span class="text-xs text-muted-foreground">
+									{$selectedSessionIds.size} selected
+								</span>
+								{#if $selectedSessionIds.size > 0}
+									<button
+										on:click={() => handleBatchDelete(false)}
+										class="ml-auto text-xs text-destructive hover:text-destructive/80 font-medium transition-colors"
+									>
+										Delete ({$selectedSessionIds.size})
+									</button>
+								{/if}
+							</div>
+						{/if}
+
 						<div class="space-y-1">
 							{#each $sessions as session}
 								<div
-									class="group flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-accent cursor-pointer transition-colors"
-									on:click={() => openSessionInNewTab(session.id)}
-									on:keypress={(e) => e.key === 'Enter' && openSessionInNewTab(session.id)}
+									class="group flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-accent cursor-pointer transition-colors {$selectionMode && $selectedSessionIds.has(session.id) ? 'bg-accent/50' : ''}"
+									on:click={() => $selectionMode ? tabs.toggleSessionSelection(session.id, false) : openSessionInNewTab(session.id)}
+									on:keypress={(e) => e.key === 'Enter' && ($selectionMode ? tabs.toggleSessionSelection(session.id, false) : openSessionInNewTab(session.id))}
 									role="button"
 									tabindex="0"
 								>
+									<!-- Checkbox for selection mode -->
+									{#if $selectionMode}
+										<input
+											type="checkbox"
+											checked={$selectedSessionIds.has(session.id)}
+											on:click|stopPropagation={(e) => handleToggleSelection(e, session.id, false)}
+											class="w-4 h-4 rounded border-border text-primary focus:ring-primary cursor-pointer"
+										/>
+									{/if}
 									<div class="flex-1 min-w-0">
 										<p class="text-sm text-foreground truncate">{truncateTitle(session.title)}</p>
 										<p class="text-xs text-muted-foreground">
 											{formatDate(session.updated_at)}{#if session.total_cost_usd}<span class="text-green-500 ml-2">{formatSessionCost(session.total_cost_usd)}</span>{/if}
 										</p>
 									</div>
-									<button
-										on:click|stopPropagation={(e) => deleteSession(e, session.id)}
-										class="opacity-0 group-hover:opacity-100 p-1 text-muted-foreground hover:text-destructive transition-opacity"
-										title="Delete session"
-									>
-										<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-											<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-										</svg>
-									</button>
+									{#if !$selectionMode}
+										<button
+											on:click|stopPropagation={(e) => deleteSession(e, session.id)}
+											class="opacity-0 group-hover:opacity-100 p-1 text-muted-foreground hover:text-destructive transition-opacity"
+											title="Delete session"
+										>
+											<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+												<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+											</svg>
+										</button>
+									{/if}
 								</div>
 							{/each}
 							{#if $sessions.length === 0}
@@ -634,31 +705,84 @@
 							</select>
 						</div>
 
-						<div class="text-xs text-muted-foreground uppercase tracking-wider px-2 mb-2">API User Sessions</div>
+						<!-- Header with label and selection toggle -->
+						<div class="flex items-center justify-between px-2 mb-2">
+							<div class="text-xs text-muted-foreground uppercase tracking-wider">API User Sessions</div>
+							{#if $adminSessions.length > 0}
+								<button
+									on:click={() => tabs.toggleSelectionMode(true)}
+									class="text-xs text-muted-foreground hover:text-foreground transition-colors"
+									title={$adminSelectionMode ? 'Exit selection mode' : 'Select multiple'}
+								>
+									{$adminSelectionMode ? 'Cancel' : 'Select'}
+								</button>
+							{/if}
+						</div>
+
+						<!-- Selection Actions Bar -->
+						{#if $adminSelectionMode && $adminSessions.length > 0}
+							<div class="flex items-center gap-2 px-2 py-2 mb-2 bg-accent rounded-lg">
+								<button
+									on:click={() => {
+										if ($selectedAdminSessionIds.size === $adminSessions.length) {
+											tabs.deselectAllSessions(true);
+										} else {
+											tabs.selectAllSessions(true);
+										}
+									}}
+									class="text-xs text-muted-foreground hover:text-foreground transition-colors"
+								>
+									{$selectedAdminSessionIds.size === $adminSessions.length ? 'Deselect All' : 'Select All'}
+								</button>
+								<span class="text-xs text-muted-foreground">
+									{$selectedAdminSessionIds.size} selected
+								</span>
+								{#if $selectedAdminSessionIds.size > 0}
+									<button
+										on:click={() => handleBatchDelete(true)}
+										class="ml-auto text-xs text-destructive hover:text-destructive/80 font-medium transition-colors"
+									>
+										Delete ({$selectedAdminSessionIds.size})
+									</button>
+								{/if}
+							</div>
+						{/if}
+
 						<div class="space-y-1">
 							{#each $adminSessions as session}
 								<div
-									class="group flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-accent cursor-pointer transition-colors"
-									on:click={() => openSessionInNewTab(session.id)}
-									on:keypress={(e) => e.key === 'Enter' && openSessionInNewTab(session.id)}
+									class="group flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-accent cursor-pointer transition-colors {$adminSelectionMode && $selectedAdminSessionIds.has(session.id) ? 'bg-accent/50' : ''}"
+									on:click={() => $adminSelectionMode ? tabs.toggleSessionSelection(session.id, true) : openSessionInNewTab(session.id)}
+									on:keypress={(e) => e.key === 'Enter' && ($adminSelectionMode ? tabs.toggleSessionSelection(session.id, true) : openSessionInNewTab(session.id))}
 									role="button"
 									tabindex="0"
 								>
+									<!-- Checkbox for selection mode -->
+									{#if $adminSelectionMode}
+										<input
+											type="checkbox"
+											checked={$selectedAdminSessionIds.has(session.id)}
+											on:click|stopPropagation={(e) => handleToggleSelection(e, session.id, true)}
+											class="w-4 h-4 rounded border-border text-primary focus:ring-primary cursor-pointer"
+										/>
+									{/if}
 									<div class="flex-1 min-w-0">
 										<p class="text-sm text-foreground truncate">{truncateTitle(session.title)}</p>
 										<p class="text-xs text-muted-foreground">
 											{formatDate(session.updated_at)}{#if session.total_cost_usd}<span class="text-green-500 ml-2">{formatSessionCost(session.total_cost_usd)}</span>{/if}
 										</p>
 									</div>
-									<button
-										on:click|stopPropagation={(e) => deleteSession(e, session.id)}
-										class="opacity-0 group-hover:opacity-100 p-1 text-muted-foreground hover:text-destructive transition-opacity"
-										title="Delete session"
-									>
-										<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-											<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-										</svg>
-									</button>
+									{#if !$adminSelectionMode}
+										<button
+											on:click|stopPropagation={(e) => deleteSession(e, session.id)}
+											class="opacity-0 group-hover:opacity-100 p-1 text-muted-foreground hover:text-destructive transition-opacity"
+											title="Delete session"
+										>
+											<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+												<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+											</svg>
+										</button>
+									{/if}
 								</div>
 							{/each}
 							{#if $adminSessions.length === 0}

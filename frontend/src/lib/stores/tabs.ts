@@ -68,6 +68,11 @@ interface TabsState {
 	adminSessionsFilter: string | null; // null = all, '' = admin only, 'user_id' = specific user
 	defaultProfile: string;
 	defaultProject: string;
+	// Selection state for batch operations
+	selectedSessionIds: Set<string>;
+	selectedAdminSessionIds: Set<string>;
+	selectionMode: boolean;
+	adminSelectionMode: boolean;
 }
 
 // WebSocket connections per tab
@@ -117,7 +122,12 @@ function createTabsStore() {
 		apiUsers: [],
 		adminSessionsFilter: null,
 		defaultProfile: getPersistedProfile(),
-		defaultProject: getPersistedProject()
+		defaultProject: getPersistedProject(),
+		// Initialize selection state
+		selectedSessionIds: new Set<string>(),
+		selectedAdminSessionIds: new Set<string>(),
+		selectionMode: false,
+		adminSelectionMode: false
 	});
 
 	/**
@@ -934,6 +944,115 @@ function createTabsStore() {
 						: tab
 				)
 			}));
+		},
+
+		// Selection mode methods
+		toggleSelectionMode(isAdmin: boolean = false) {
+			update(s => {
+				if (isAdmin) {
+					return {
+						...s,
+						adminSelectionMode: !s.adminSelectionMode,
+						selectedAdminSessionIds: new Set<string>()
+					};
+				}
+				return {
+					...s,
+					selectionMode: !s.selectionMode,
+					selectedSessionIds: new Set<string>()
+				};
+			});
+		},
+
+		exitSelectionMode(isAdmin: boolean = false) {
+			update(s => {
+				if (isAdmin) {
+					return {
+						...s,
+						adminSelectionMode: false,
+						selectedAdminSessionIds: new Set<string>()
+					};
+				}
+				return {
+					...s,
+					selectionMode: false,
+					selectedSessionIds: new Set<string>()
+				};
+			});
+		},
+
+		toggleSessionSelection(sessionId: string, isAdmin: boolean = false) {
+			update(s => {
+				if (isAdmin) {
+					const newSet = new Set(s.selectedAdminSessionIds);
+					if (newSet.has(sessionId)) {
+						newSet.delete(sessionId);
+					} else {
+						newSet.add(sessionId);
+					}
+					return { ...s, selectedAdminSessionIds: newSet };
+				}
+				const newSet = new Set(s.selectedSessionIds);
+				if (newSet.has(sessionId)) {
+					newSet.delete(sessionId);
+				} else {
+					newSet.add(sessionId);
+				}
+				return { ...s, selectedSessionIds: newSet };
+			});
+		},
+
+		selectAllSessions(isAdmin: boolean = false) {
+			update(s => {
+				if (isAdmin) {
+					const allIds = new Set(s.adminSessions.map(session => session.id));
+					return { ...s, selectedAdminSessionIds: allIds };
+				}
+				const allIds = new Set(s.sessions.map(session => session.id));
+				return { ...s, selectedSessionIds: allIds };
+			});
+		},
+
+		deselectAllSessions(isAdmin: boolean = false) {
+			update(s => {
+				if (isAdmin) {
+					return { ...s, selectedAdminSessionIds: new Set<string>() };
+				}
+				return { ...s, selectedSessionIds: new Set<string>() };
+			});
+		},
+
+		async deleteSelectedSessions(isAdmin: boolean = false) {
+			const state = get({ subscribe });
+			const sessionIds = isAdmin
+				? Array.from(state.selectedAdminSessionIds)
+				: Array.from(state.selectedSessionIds);
+
+			if (sessionIds.length === 0) return;
+
+			// Use batch delete endpoint
+			await api.post('/sessions/batch-delete', { session_ids: sessionIds });
+
+			// Reload sessions
+			await this.loadSessions();
+			if (isAdmin) {
+				await loadAdminSessionsInternal(state.adminSessionsFilter);
+			}
+
+			// Clear any tabs that had deleted sessions
+			update(s => ({
+				...s,
+				tabs: s.tabs.map(tab =>
+					sessionIds.includes(tab.sessionId || '')
+						? { ...tab, sessionId: null, messages: [], title: 'New Chat' }
+						: tab
+				),
+				// Exit selection mode and clear selections
+				selectionMode: isAdmin ? s.selectionMode : false,
+				adminSelectionMode: isAdmin ? false : s.adminSelectionMode,
+				selectedSessionIds: isAdmin ? s.selectedSessionIds : new Set<string>(),
+				selectedAdminSessionIds: isAdmin ? new Set<string>() : s.selectedAdminSessionIds
+			}));
 		}
 	};
 }
@@ -952,3 +1071,8 @@ export const apiUsers = derived(tabs, $tabs => $tabs.apiUsers);
 export const adminSessionsFilter = derived(tabs, $tabs => $tabs.adminSessionsFilter);
 export const defaultProfile = derived(tabs, $tabs => $tabs.defaultProfile);
 export const defaultProject = derived(tabs, $tabs => $tabs.defaultProject);
+// Selection state derived stores
+export const selectedSessionIds = derived(tabs, $tabs => $tabs.selectedSessionIds);
+export const selectedAdminSessionIds = derived(tabs, $tabs => $tabs.selectedAdminSessionIds);
+export const selectionMode = derived(tabs, $tabs => $tabs.selectionMode);
+export const adminSelectionMode = derived(tabs, $tabs => $tabs.adminSelectionMode);

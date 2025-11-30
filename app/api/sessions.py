@@ -5,12 +5,18 @@ Session management API routes
 from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, Depends, Query, status, Request
+from pydantic import BaseModel
 
 from app.core.models import Session, SessionWithMessages
 from app.db import database
 from app.api.auth import require_auth, get_api_user_from_request
 
 router = APIRouter(prefix="/api/v1/sessions", tags=["Sessions"])
+
+
+class BatchDeleteRequest(BaseModel):
+    """Request body for batch delete operation"""
+    session_ids: List[str]
 
 
 def check_session_access(request: Request, session: dict) -> None:
@@ -147,6 +153,42 @@ async def delete_session(request: Request, session_id: str, token: str = Depends
     check_session_access(request, existing)
 
     database.delete_session(session_id)
+
+
+@router.post("/batch-delete", status_code=status.HTTP_200_OK)
+async def batch_delete_sessions(
+    request: Request,
+    body: BatchDeleteRequest,
+    token: str = Depends(require_auth)
+):
+    """
+    Delete multiple sessions at once.
+    API users can only delete sessions they have access to.
+    Returns count of successfully deleted sessions.
+    """
+    deleted_count = 0
+    errors = []
+
+    for session_id in body.session_ids:
+        try:
+            existing = database.get_session(session_id)
+            if not existing:
+                errors.append(f"Session not found: {session_id}")
+                continue
+
+            check_session_access(request, existing)
+            database.delete_session(session_id)
+            deleted_count += 1
+        except HTTPException as e:
+            errors.append(f"Access denied for session {session_id}: {e.detail}")
+        except Exception as e:
+            errors.append(f"Error deleting session {session_id}: {str(e)}")
+
+    return {
+        "deleted_count": deleted_count,
+        "total_requested": len(body.session_ids),
+        "errors": errors if errors else None
+    }
 
 
 @router.post("/{session_id}/archive")
