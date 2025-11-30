@@ -14,6 +14,7 @@ import struct
 import fcntl
 import termios
 import signal
+import pwd
 from typing import Optional, Dict, Any, Callable, Awaitable
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -88,6 +89,19 @@ class CLIBridge:
             return False
 
         try:
+            # IMPORTANT: Ensure onboarding is complete BEFORE spawning CLI
+            # This prevents the Claude CLI from showing the login/onboarding wizard
+            # even when credentials exist. Must be done in parent process before fork.
+            from app.core.auth import auth_service
+            home_dir = pwd.getpwuid(os.getuid()).pw_dir
+            creds_path = os.path.join(home_dir, ".claude", ".credentials.json")
+
+            if os.path.exists(creds_path) and os.path.getsize(creds_path) > 0:
+                logger.info(f"Credentials found at {creds_path}, ensuring onboarding is complete")
+                auth_service._ensure_onboarding_complete()
+            else:
+                logger.warning(f"Credentials not found or empty at {creds_path} - CLI may prompt for login")
+
             # Create PTY
             pid, fd = pty.fork()
 
@@ -102,20 +116,11 @@ class CLIBridge:
 
                 # Ensure HOME is set correctly for Claude credentials
                 # This is critical - Claude looks for ~/.claude/.credentials.json
-                import pwd
-                home_dir = pwd.getpwuid(os.getuid()).pw_dir
                 env["HOME"] = home_dir
 
                 # Ensure PATH includes common binary locations
                 if "PATH" not in env:
                     env["PATH"] = "/usr/local/bin:/usr/bin:/bin"
-
-                # Verify credentials file exists (debug logging)
-                creds_path = os.path.join(home_dir, ".claude", ".credentials.json")
-                if not os.path.exists(creds_path):
-                    # Can't use logger in child process, write to stderr
-                    import sys
-                    sys.stderr.write(f"WARNING: Credentials file not found at {creds_path}\n")
 
                 # Execute claude with --resume to use existing session
                 # Then we'll send the command via stdin
