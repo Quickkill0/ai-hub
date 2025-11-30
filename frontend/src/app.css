@@ -2,50 +2,94 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-	--color-bg: #0f0f0f;
-	--color-surface: #1a1a1a;
-	--color-surface-hover: #252525;
-	--color-border: #333;
-	--color-text: #e5e5e5;
-	--color-text-muted: #888;
-	--color-primary: #e5604d;
-	--color-primary-hover: #d14430;
+@layer base {
+	:root {
+		/* Anvil-style OKLCH color system - Dark theme */
+		--background: oklch(0.2 0 264);
+		--foreground: oklch(0.96 0 264);
+		--card: oklch(0.3 0 264);
+		--card-foreground: oklch(0.96 0 264);
+		--popover: oklch(0.3 0 264);
+		--popover-foreground: oklch(0.96 0 264);
+		--primary: oklch(0.65 0.15 264);
+		--primary-foreground: oklch(1 0 264);
+		--secondary: oklch(0.3 0 264);
+		--secondary-foreground: oklch(0.96 0 264);
+		--muted: oklch(0.3 0 264);
+		--muted-foreground: oklch(0.76 0 264);
+		--accent: oklch(0.35 0 264);
+		--accent-foreground: oklch(0.96 0 264);
+		--destructive: oklch(0.5 0.22 25);
+		--destructive-foreground: oklch(0.96 0 264);
+		--border: oklch(0.35 0 264);
+		--input: oklch(0.3 0 264);
+		--ring: oklch(0.65 0.15 264);
+		--radius: 0.5rem;
+
+		/* Layered shadow system */
+		--shadow-s: inset 0 1px 2px #ffffff10, 0 1px 2px #00000030, 0 2px 4px #00000015;
+		--shadow-m: inset 0 1px 2px #ffffff15, 0 2px 4px #00000030, 0 4px 8px #00000015;
+		--shadow-l: inset 0 1px 2px #ffffff20, 0 4px 6px #00000030, 0 6px 10px #00000015;
+	}
 }
 
-body {
-	@apply bg-[var(--color-bg)] text-[var(--color-text)] min-h-screen;
-	font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+@layer base {
+	* {
+		border-color: var(--border);
+	}
+
+	body {
+		@apply bg-background text-foreground min-h-screen;
+		font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+		font-synthesis: none;
+		text-rendering: optimizeLegibility;
+		-webkit-font-smoothing: antialiased;
+		-moz-osx-font-smoothing: grayscale;
+	}
 }
 
 /* Scrollbar styling */
-::-webkit-scrollbar {
-	width: 8px;
-	height: 8px;
+* {
+	scrollbar-width: thin;
+	scrollbar-color: var(--muted-foreground) transparent;
 }
 
-::-webkit-scrollbar-track {
-	background: var(--color-surface);
+*::-webkit-scrollbar {
+	width: 10px;
+	height: 10px;
 }
 
-::-webkit-scrollbar-thumb {
-	background: var(--color-border);
-	border-radius: 4px;
+*::-webkit-scrollbar-track {
+	background: transparent;
+	border-radius: 5px;
 }
 
-::-webkit-scrollbar-thumb:hover {
-	background: #444;
+*::-webkit-scrollbar-thumb {
+	background: var(--muted-foreground);
+	border-radius: 5px;
+	border: 2px solid transparent;
+	background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+	background: var(--foreground);
+	border: 2px solid transparent;
+	background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-corner {
+	background: transparent;
 }
 
 /* Code blocks */
 pre {
-	@apply bg-[var(--color-surface)] rounded-lg p-4 overflow-x-auto;
-	font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', monospace;
+	@apply bg-muted rounded-lg p-4 overflow-x-auto;
+	font-family: ui-monospace, 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', monospace;
 	font-size: 0.875rem;
 }
 
 code {
-	font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', monospace;
+	font-family: ui-monospace, 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', monospace;
 }
 
 /* Button base styles */
@@ -54,25 +98,115 @@ code {
 }
 
 .btn-primary {
-	@apply bg-[var(--color-primary)] text-white hover:bg-[var(--color-primary-hover)];
+	@apply bg-primary text-primary-foreground hover:opacity-90;
 }
 
 .btn-secondary {
-	@apply bg-[var(--color-surface)] text-[var(--color-text)] hover:bg-[var(--color-surface-hover)] border border-[var(--color-border)];
+	@apply bg-secondary text-secondary-foreground hover:bg-accent border border-border;
 }
 
 .btn-danger {
-	@apply bg-red-600 text-white hover:bg-red-700;
+	@apply bg-destructive text-destructive-foreground hover:opacity-90;
 }
 
 /* Input styles */
 .input {
-	@apply w-full px-4 py-2 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] focus:outline-none focus:border-[var(--color-primary)] transition-colors;
+	@apply w-full px-4 py-2 bg-input border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring transition-colors;
 }
 
 /* Card styles */
 .card {
-	@apply bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg;
+	@apply bg-card border border-border rounded-lg;
+}
+
+/* Markdown prose styling */
+.prose {
+	color: var(--foreground);
+	max-width: 100%;
+	width: 100%;
+	overflow-wrap: break-word;
+	word-wrap: break-word;
+}
+
+.prose :where(p):not(:where([class~="not-prose"] *)) {
+	margin-top: 0;
+	margin-bottom: 1rem;
+}
+
+.prose :where(p):last-child:not(:where([class~="not-prose"] *)) {
+	margin-bottom: 0;
+}
+
+.prose :where(code):not(:where([class~="not-prose"] *)) {
+	font-weight: 400;
+	font-size: 0.9em;
+	@apply px-1.5 py-0.5 rounded bg-muted border border-border;
+}
+
+.prose :where(pre code):not(:where([class~="not-prose"] *)) {
+	@apply px-0 py-0 bg-transparent border-0;
+}
+
+.prose :where(a):not(:where([class~="not-prose"] *)) {
+	@apply text-primary hover:opacity-80;
+	font-weight: 500;
+	text-decoration: underline;
+	text-decoration-thickness: 1px;
+	text-underline-offset: 2px;
+}
+
+.prose :where(ul):not(:where([class~="not-prose"] *)),
+.prose :where(ol):not(:where([class~="not-prose"] *)) {
+	padding-left: 1.5rem;
+}
+
+.prose :where(li):not(:where([class~="not-prose"] *)) {
+	margin-top: 0.25rem;
+	margin-bottom: 0.25rem;
+}
+
+.prose :where(h1):not(:where([class~="not-prose"] *)) {
+	@apply text-2xl font-bold mt-6 mb-4;
+}
+
+.prose :where(h2):not(:where([class~="not-prose"] *)) {
+	@apply text-xl font-bold mt-5 mb-3;
+}
+
+.prose :where(h3):not(:where([class~="not-prose"] *)) {
+	@apply text-lg font-bold mt-4 mb-2;
+}
+
+.prose :where(h4):not(:where([class~="not-prose"] *)) {
+	@apply text-base font-bold mt-3 mb-2;
+}
+
+.prose :where(blockquote):not(:where([class~="not-prose"] *)) {
+	@apply border-l-4 border-primary pl-4 italic bg-muted/20 py-2 my-4;
+}
+
+.prose :where(table):not(:where([class~="not-prose"] *)) {
+	@apply w-full border-collapse my-4;
+}
+
+.prose :where(th):not(:where([class~="not-prose"] *)) {
+	@apply border border-border px-3 py-2 bg-muted text-left font-semibold;
+}
+
+.prose :where(td):not(:where([class~="not-prose"] *)) {
+	@apply border border-border px-3 py-2;
+}
+
+.prose :where(tr):not(:where([class~="not-prose"] *)):hover {
+	@apply bg-muted/30;
+}
+
+.prose :where(strong):not(:where([class~="not-prose"] *)) {
+	@apply font-semibold;
+}
+
+.prose :where(em):not(:where([class~="not-prose"] *)) {
+	@apply italic;
 }
 
 /* Mobile optimizations */
@@ -88,7 +222,7 @@ code {
 
 	.input {
 		@apply min-h-[44px];
-		font-size: 16px; /* Prevents zoom on iOS */
+		font-size: 16px;
 	}
 
 	select.input {
