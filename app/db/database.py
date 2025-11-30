@@ -728,6 +728,28 @@ def add_session_message(
         }
 
 
+def delete_session_message(session_id: str, message_id: int) -> bool:
+    """Delete a specific message from a session"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "DELETE FROM session_messages WHERE session_id = ? AND id = ?",
+            (session_id, message_id)
+        )
+        return cursor.rowcount > 0
+
+
+def delete_session_messages_after(session_id: str, message_id: int) -> int:
+    """Delete all messages after a specific message ID (for rewind)"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "DELETE FROM session_messages WHERE session_id = ? AND id > ?",
+            (session_id, message_id)
+        )
+        return cursor.rowcount
+
+
 # ============================================================================
 # Usage Log Operations
 # ============================================================================

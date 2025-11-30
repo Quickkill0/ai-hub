@@ -25,6 +25,9 @@
 	} from '$lib/stores/tabs';
 	import { api, type FileUploadResponse } from '$lib/api/client';
 	import { marked } from 'marked';
+	import TerminalModal from '$lib/components/TerminalModal.svelte';
+	import CommandAutocomplete from '$lib/components/CommandAutocomplete.svelte';
+	import { executeCommand, isSlashCommand, syncAfterRewind, type Command } from '$lib/api/commands';
 
 	// Configure marked for better code highlighting
 	marked.setOptions({
@@ -50,6 +53,14 @@
 	let fileInput: HTMLInputElement;
 	let isUploading = false;
 	let textareas: Record<string, HTMLTextAreaElement> = {};
+
+	// Terminal modal state for /rewind and other interactive commands
+	let showTerminalModal = false;
+	let terminalCommand = '/rewind';
+	let terminalSessionId = '';
+
+	// Command autocomplete state
+	let showCommandAutocomplete: Record<string, boolean> = {};
 
 	// Accordion states for profile form sections
 	let expandedSections: Record<string, boolean> = {
@@ -209,6 +220,76 @@
 			textarea.style.height = 'auto';
 			textarea.style.height = Math.min(textarea.scrollHeight, 200) + 'px';
 		}
+	}
+
+	// Handle input changes for command autocomplete
+	function handleInputChange(tabId: string) {
+		const input = tabInputs[tabId] || '';
+		// Show autocomplete when input starts with /
+		showCommandAutocomplete[tabId] = input.startsWith('/') && input.length > 0;
+		showCommandAutocomplete = showCommandAutocomplete;
+		autoResize(tabId);
+	}
+
+	// Handle command selection from autocomplete
+	async function handleCommandSelect(tabId: string, command: Command) {
+		showCommandAutocomplete[tabId] = false;
+		showCommandAutocomplete = showCommandAutocomplete;
+
+		if (command.type === 'interactive') {
+			// Open terminal modal for interactive commands
+			openTerminalModal(tabId, `/${command.name}`);
+		} else {
+			// For custom commands, fill in the command
+			tabInputs[tabId] = `/${command.name} `;
+			tabInputs = tabInputs;
+			// Focus the textarea
+			setTimeout(() => {
+				const textarea = textareas[tabId];
+				if (textarea) {
+					textarea.focus();
+					textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+				}
+			}, 0);
+		}
+	}
+
+	// Open the terminal modal for interactive commands
+	function openTerminalModal(tabId: string, command: string = '/rewind') {
+		const tab = $allTabs.find(t => t.id === tabId);
+		if (!tab?.sessionId) {
+			alert('Please start a conversation first before using this command.');
+			return;
+		}
+		terminalSessionId = tab.sessionId;
+		terminalCommand = command;
+		showTerminalModal = true;
+	}
+
+	// Handle rewind completion
+	async function handleRewindComplete(checkpointMessage: string | null, selectedOption: number | null) {
+		console.log('Rewind complete:', { checkpointMessage, selectedOption });
+
+		// Sync our chat if conversation was restored (options 1 or 2)
+		if (terminalSessionId && checkpointMessage && (selectedOption === 1 || selectedOption === 2)) {
+			try {
+				const result = await syncAfterRewind(terminalSessionId, checkpointMessage, selectedOption);
+				console.log('Chat sync result:', result);
+
+				// Reload the session to reflect changes
+				if ($activeTabId && result.success && result.deleted_count > 0) {
+					await tabs.loadSessionInTab($activeTabId, terminalSessionId);
+				}
+			} catch (error) {
+				console.error('Failed to sync chat after rewind:', error);
+			}
+		}
+	}
+
+	// Close the terminal modal
+	function closeTerminalModal() {
+		showTerminalModal = false;
+		terminalSessionId = '';
 	}
 
 	async function handleLogout() {
@@ -938,6 +1019,21 @@
 					</button>
 				</div>
 
+				<!-- Rewind Button -->
+				{#if currentTab.sessionId}
+					<button
+						on:click={() => openTerminalModal(tabId, '/rewind')}
+						class="flex items-center gap-1 px-2 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-muted rounded transition-colors"
+						title="Rewind conversation and/or code"
+						disabled={currentTab.isStreaming}
+					>
+						<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12.066 11.2a1 1 0 000 1.6l5.334 4A1 1 0 0019 16V8a1 1 0 00-1.6-.8l-5.333 4zM4.066 11.2a1 1 0 000 1.6l5.334 4A1 1 0 0011 16V8a1 1 0 00-1.6-.8l-5.334 4z" />
+						</svg>
+						<span class="hidden sm:inline">Rewind</span>
+					</button>
+				{/if}
+
 				<!-- Connection Status -->
 				<div class="flex-1"></div>
 				<div class="flex items-center gap-1 sm:gap-2 text-xs">
@@ -1194,14 +1290,26 @@
 							{/if}
 						</button>
 
-						<!-- Textarea -->
+						<!-- Textarea with Command Autocomplete -->
 						<div class="flex-1 relative">
+							<!-- Command Autocomplete -->
+							<CommandAutocomplete
+								inputValue={tabInputs[tabId] || ''}
+								projectId={currentTab.project}
+								visible={showCommandAutocomplete[tabId] || false}
+								onSelect={(cmd) => handleCommandSelect(tabId, cmd)}
+								onClose={() => {
+									showCommandAutocomplete[tabId] = false;
+									showCommandAutocomplete = showCommandAutocomplete;
+								}}
+							/>
+
 							<textarea
 								bind:this={textareas[tabId]}
 								bind:value={tabInputs[tabId]}
-								on:input={() => autoResize(tabId)}
+								on:input={() => handleInputChange(tabId)}
 								on:keydown={(e) => handleKeyDown(e, tabId)}
-								placeholder="Message Claude..."
+								placeholder="Message Claude... (type / for commands)"
 								class="w-full bg-card border border-border rounded-lg px-4 py-2.5 text-foreground placeholder-muted-foreground resize-none focus:outline-none focus:ring-2 focus:ring-ring min-h-[40px] max-h-[200px] leading-normal shadow-s"
 								rows="1"
 								disabled={currentTab.isStreaming || !$claudeAuthenticated}
@@ -1594,6 +1702,16 @@
 			</div>
 		</div>
 	</div>
+{/if}
+
+<!-- Terminal Modal for interactive CLI commands -->
+{#if showTerminalModal && terminalSessionId}
+	<TerminalModal
+		sessionId={terminalSessionId}
+		command={terminalCommand}
+		onClose={closeTerminalModal}
+		onRewindComplete={handleRewindComplete}
+	/>
 {/if}
 
 <style>
