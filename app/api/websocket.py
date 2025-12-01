@@ -74,26 +74,33 @@ async def chat_websocket(
     token: Optional[str] = Query(None, description="Authentication token (optional if cookie auth)")
 ):
     """
-    Primary WebSocket endpoint for chat.
+    Primary WebSocket endpoint for chat with streaming input support.
 
-    This is the ONLY streaming mechanism needed. Simple flow:
+    This endpoint supports full streaming input mode, allowing:
+    - Image attachments in messages
+    - Message queueing (send follow-ups while Claude is still responding)
+
+    Flow:
     1. Client connects
     2. Client sends: {"type": "query", "prompt": "...", "session_id": "...", "profile": "..."}
     3. Server streams response chunks directly
-    4. Server sends: {"type": "done", ...} when complete
+    4. Client can send more queries while streaming - they get queued
+    5. Server sends: {"type": "done", ...} when complete
 
     Message types FROM server:
     - history: Full message history for session (on connect or session switch)
     - start: Query started, streaming will begin
+    - queued: Message was queued to active session (will process after current response)
     - chunk: Text content chunk
     - tool_use: Tool being used
     - tool_result: Tool result
     - done: Query complete with metadata
+    - stopped: Query was interrupted
     - error: Error occurred
     - ping: Keep-alive
 
     Message types TO server:
-    - query: Start a new query
+    - query: Start a new query or queue to existing session
         - prompt: string (required) - The text prompt
         - session_id: string (optional) - Continue existing session
         - profile: string (optional) - Profile ID, default "claude-code"
@@ -177,7 +184,7 @@ async def chat_websocket(
                     msg_type = data.get("type")
 
                     if msg_type == "query":
-                        # Start a new query
+                        # Start a new query or queue to existing session
                         prompt = data.get("prompt", "").strip()
                         session_id = data.get("session_id")
                         profile_id = data.get("profile", "claude-code")
@@ -191,17 +198,23 @@ async def chat_websocket(
                         # Validate images if provided
                         if images:
                             valid_media_types = {"image/png", "image/jpeg", "image/gif", "image/webp"}
+                            valid = True
                             for i, img in enumerate(images):
                                 if not isinstance(img, dict):
                                     await send_json({"type": "error", "message": f"Invalid image format at index {i}"})
-                                    continue
+                                    valid = False
+                                    break
                                 media_type = img.get("media_type", "")
                                 if media_type not in valid_media_types:
                                     await send_json({"type": "error", "message": f"Invalid media type '{media_type}' at index {i}. Must be one of: {valid_media_types}"})
-                                    continue
+                                    valid = False
+                                    break
                                 if not img.get("data"):
                                     await send_json({"type": "error", "message": f"Missing image data at index {i}"})
-                                    continue
+                                    valid = False
+                                    break
+                            if not valid:
+                                continue
 
                         # Create or get session
                         if not session_id:
@@ -225,19 +238,33 @@ async def chat_websocket(
                             content=user_content
                         )
 
-                        # Cancel any existing query for this session
-                        if session_id in _active_chat_sessions:
-                            _active_chat_sessions[session_id].cancel()
-                            try:
-                                await _active_chat_sessions[session_id]
-                            except asyncio.CancelledError:
-                                pass
+                        # Try to queue message to existing active session
+                        from app.core.query_engine import queue_message
+                        queued = await queue_message(session_id, prompt, images)
 
-                        # Start new query task with images
-                        query_task = asyncio.create_task(
-                            run_query(prompt, session_id, profile_id, project_id, images)
-                        )
-                        _active_chat_sessions[session_id] = query_task
+                        if queued:
+                            # Message was queued to existing streaming session
+                            logger.info(f"Message queued to active session {session_id}")
+                            await send_json({
+                                "type": "queued",
+                                "session_id": session_id,
+                                "message": "Message queued - will be processed after current response"
+                            })
+                        else:
+                            # No active session or queue closed - start new query
+                            # Cancel any existing query task for this session
+                            if session_id in _active_chat_sessions:
+                                _active_chat_sessions[session_id].cancel()
+                                try:
+                                    await _active_chat_sessions[session_id]
+                                except asyncio.CancelledError:
+                                    pass
+
+                            # Start new query task with images
+                            query_task = asyncio.create_task(
+                                run_query(prompt, session_id, profile_id, project_id, images)
+                            )
+                            _active_chat_sessions[session_id] = query_task
 
                     elif msg_type == "stop":
                         # Stop current query - use interrupt_session for proper SDK-level cancellation
