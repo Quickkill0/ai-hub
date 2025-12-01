@@ -1381,36 +1381,41 @@
 								bind:value={tabInputs[tabId]}
 								on:input={() => handleInputChange(tabId)}
 								on:keydown={(e) => handleKeyDown(e, tabId)}
-								placeholder="Message Claude... (type / for commands)"
+								placeholder={currentTab.isStreaming ? "Type to queue message..." : "Message Claude... (type / for commands)"}
 								class="w-full bg-card border border-border rounded-lg px-4 py-2.5 text-foreground placeholder-muted-foreground resize-none focus:outline-none focus:ring-2 focus:ring-ring min-h-[40px] max-h-[200px] leading-normal shadow-s"
 								rows="1"
-								disabled={currentTab.isStreaming || !$claudeAuthenticated}
+								disabled={!$claudeAuthenticated}
 							></textarea>
 						</div>
 
-						<!-- Send/Stop Button -->
-						{#if currentTab.isStreaming}
-							<button
-								type="button"
-								on:click={() => tabs.stopGeneration(tabId)}
-								class="flex-shrink-0 w-10 h-10 flex items-center justify-center bg-destructive/20 text-destructive hover:bg-destructive/30 rounded-lg transition-colors shadow-s"
-							>
-								<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" />
-								</svg>
-							</button>
-						{:else}
+						<!-- Send/Stop Buttons -->
+						<div class="flex gap-1">
+							{#if currentTab.isStreaming}
+								<!-- Stop button during streaming -->
+								<button
+									type="button"
+									on:click={() => tabs.stopGeneration(tabId)}
+									class="flex-shrink-0 w-10 h-10 flex items-center justify-center bg-destructive/20 text-destructive hover:bg-destructive/30 rounded-lg transition-colors shadow-s"
+									title="Stop generation"
+								>
+									<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" />
+									</svg>
+								</button>
+							{/if}
+							<!-- Send button (always visible, queues message during streaming) -->
 							<button
 								type="submit"
 								class="flex-shrink-0 w-10 h-10 flex items-center justify-center bg-primary hover:opacity-90 text-primary-foreground rounded-lg transition-colors disabled:opacity-50 shadow-s"
 								disabled={!(tabInputs[tabId] || '').trim() || !$claudeAuthenticated}
+								title={currentTab.isStreaming ? "Queue message" : "Send message"}
 							>
 								<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
 								</svg>
 							</button>
-						{/if}
+						</div>
 					</form>
 				</div>
 			</div>
