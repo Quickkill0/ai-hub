@@ -24,6 +24,7 @@ from app.db import database
 from app.core.config import settings
 from app.core.profiles import get_profile_or_builtin
 from app.core.sync_engine import sync_engine
+from app.core.checkpoint_manager import checkpoint_manager
 
 logger = logging.getLogger(__name__)
 
@@ -726,6 +727,17 @@ async def stream_query(
             duration_ms=metadata.get("duration_ms", 0)
         )
 
+    # Create checkpoint after successful query (for rewind functionality)
+    if not interrupted and sdk_session_id:
+        try:
+            checkpoint_manager.create_checkpoint(
+                session_id=session_id,
+                description=prompt[:50],
+                create_git_snapshot=True
+            )
+        except Exception as e:
+            logger.warning(f"Failed to create checkpoint for session {session_id}: {e}")
+
     # Yield done event (unless already yielded error/interrupted)
     if not interrupted:
         yield {
@@ -1046,6 +1058,17 @@ async def _run_background_query(
             cost_usd=metadata.get("total_cost_usd", 0),
             duration_ms=metadata.get("duration_ms", 0)
         )
+
+    # Create checkpoint after successful query (for rewind functionality)
+    if not interrupted and sdk_session_id and not metadata.get("error"):
+        try:
+            checkpoint_manager.create_checkpoint(
+                session_id=session_id,
+                description=prompt[:50],
+                create_git_snapshot=True
+            )
+        except Exception as e:
+            logger.warning(f"[Background] Failed to create checkpoint for session {session_id}: {e}")
 
     logger.info(f"[Background] Query completed for session {session_id}")
 
@@ -1455,6 +1478,18 @@ async def stream_to_websocket(
             cost_usd=metadata.get("total_cost_usd", 0),
             duration_ms=metadata.get("duration_ms", 0)
         )
+
+    # Create checkpoint after successful query (for rewind functionality)
+    # This captures the git state AFTER Claude's changes
+    if not interrupted and sdk_session_id:
+        try:
+            checkpoint_manager.create_checkpoint(
+                session_id=session_id,
+                description=prompt[:50],
+                create_git_snapshot=True
+            )
+        except Exception as e:
+            logger.warning(f"Failed to create checkpoint for session {session_id}: {e}")
 
     # Yield done or interrupted event
     if interrupted:

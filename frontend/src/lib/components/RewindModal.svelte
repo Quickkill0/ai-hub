@@ -14,6 +14,7 @@
 		full_message: string;
 		timestamp?: string;
 		git_available: boolean;
+		git_ref?: string | null;
 	}
 
 	interface CheckpointsResponse {
@@ -222,6 +223,9 @@
 												{#if i === checkpoints.length - 1}
 													<span class="text-xs bg-primary/20 text-primary px-1.5 py-0.5 rounded">Current</span>
 												{/if}
+												{#if checkpoint.git_ref}
+													<span class="text-xs bg-green-500/20 text-green-600 dark:text-green-400 px-1.5 py-0.5 rounded" title="Git snapshot available">Git</span>
+												{/if}
 											</div>
 											<p class="text-sm mt-1 truncate">{truncateMessage(checkpoint.message_preview)}</p>
 											{#if checkpoint.timestamp}
@@ -255,16 +259,22 @@
 							</div>
 						</label>
 
-						<label class="flex items-center gap-3 cursor-pointer">
+						<label class="flex items-center gap-3 cursor-pointer {!selectedCheckpoint?.git_ref ? 'opacity-50' : ''}">
 							<input
 								type="checkbox"
 								bind:checked={restoreCode}
-								disabled
-								class="w-4 h-4 rounded border-border opacity-50"
+								disabled={!selectedCheckpoint?.git_ref}
+								class="w-4 h-4 rounded border-border"
 							/>
-							<div class="opacity-50">
+							<div>
 								<span class="text-sm font-medium">Restore code changes</span>
-								<p class="text-xs text-muted-foreground">Revert files to checkpoint state (requires git)</p>
+								<p class="text-xs text-muted-foreground">
+									{#if selectedCheckpoint?.git_ref}
+										Revert files to checkpoint state (git snapshot available)
+									{:else}
+										No git snapshot for this checkpoint
+									{/if}
+								</p>
 							</div>
 						</label>
 

@@ -321,13 +321,12 @@ class CheckpointManager:
     Coordinates between:
     - JSONLRewindService for chat history
     - GitSnapshotService for code state
-    - Database for checkpoint metadata storage
+    - Database for checkpoint metadata storage (persistent)
     """
 
     def __init__(self):
         self.jsonl_service = jsonl_rewind_service
         self.git_service = GitSnapshotService()
-        self._checkpoint_store: Dict[str, List[FullCheckpoint]] = {}
 
     def _get_working_dir(self, project_id: Optional[str]) -> str:
         """Get working directory for a project."""
@@ -369,12 +368,21 @@ class CheckpointManager:
         # Get chat checkpoints from JSONL
         chat_checkpoints = self.jsonl_service.get_checkpoints(sdk_session_id, working_dir)
 
-        # Check git availability
-        git_available = include_git and self.git_service.is_git_repo(working_dir)
+        # Check git availability for new snapshots
+        git_repo_available = include_git and self.git_service.is_git_repo(working_dir)
+
+        # Get stored checkpoints from database for git_ref lookup
+        stored_checkpoints = database.get_session_checkpoints(session_id)
+        stored_by_uuid = {cp['message_uuid']: cp for cp in stored_checkpoints}
 
         # Convert to full checkpoints
         checkpoints = []
         for cp in chat_checkpoints:
+            # Look up stored checkpoint for git_ref
+            stored = stored_by_uuid.get(cp.uuid)
+            git_ref = stored.get('git_ref') if stored else None
+            has_git_snapshot = git_ref is not None
+
             full_cp = {
                 'id': f"{session_id}:{cp.uuid}",
                 'session_id': session_id,
@@ -384,8 +392,8 @@ class CheckpointManager:
                 'full_message': cp.full_message,
                 'message_index': cp.index,
                 'timestamp': cp.timestamp,
-                'git_available': git_available,
-                'git_ref': cp.git_ref  # May be populated from stored checkpoints
+                'git_available': has_git_snapshot or git_repo_available,  # Can restore if has snapshot or repo available
+                'git_ref': git_ref
             }
             checkpoints.append(full_cp)
 
@@ -429,6 +437,22 @@ class CheckpointManager:
             logger.debug(f"No messages in JSONL for session {session_id}")
             return None
 
+        # Check if we already have a checkpoint for this message UUID
+        existing = database.get_checkpoint_by_message_uuid(session_id, last_uuid)
+        if existing:
+            logger.debug(f"Checkpoint already exists for message {last_uuid}")
+            return FullCheckpoint(
+                id=existing['id'],
+                session_id=existing['session_id'],
+                sdk_session_id=existing['sdk_session_id'],
+                message_uuid=existing['message_uuid'],
+                message_preview=existing.get('message_preview', ''),
+                message_index=existing.get('message_index', 0),
+                git_ref=existing.get('git_ref'),
+                git_available=existing.get('git_available', False),
+                timestamp=existing.get('created_at', datetime.now().isoformat())
+            )
+
         # Create git snapshot if requested
         git_ref = None
         git_available = False
@@ -439,7 +463,7 @@ class CheckpointManager:
             )
             git_available = git_ref is not None
 
-        # Get message preview
+        # Get message preview and index
         checkpoints = self.jsonl_service.get_checkpoints(sdk_session_id, working_dir)
         message_preview = ""
         message_index = 0
@@ -449,8 +473,11 @@ class CheckpointManager:
                 message_index = cp.index
                 break
 
-        checkpoint = FullCheckpoint(
-            id=f"{session_id}:{last_uuid}:{datetime.now().strftime('%Y%m%d%H%M%S')}",
+        checkpoint_id = f"{session_id}:{last_uuid}:{datetime.now().strftime('%Y%m%d%H%M%S')}"
+
+        # Persist checkpoint to database
+        database.create_checkpoint(
+            checkpoint_id=checkpoint_id,
             session_id=session_id,
             sdk_session_id=sdk_session_id,
             message_uuid=last_uuid,
@@ -460,10 +487,16 @@ class CheckpointManager:
             git_available=git_available
         )
 
-        # Store checkpoint
-        if session_id not in self._checkpoint_store:
-            self._checkpoint_store[session_id] = []
-        self._checkpoint_store[session_id].append(checkpoint)
+        checkpoint = FullCheckpoint(
+            id=checkpoint_id,
+            session_id=session_id,
+            sdk_session_id=sdk_session_id,
+            message_uuid=last_uuid,
+            message_preview=message_preview,
+            message_index=message_index,
+            git_ref=git_ref,
+            git_available=git_available
+        )
 
         logger.info(f"Created checkpoint {checkpoint.id} (git={git_available})")
         return checkpoint
@@ -533,6 +566,9 @@ class CheckpointManager:
 
                 # Also sync our database
                 self._sync_database_after_rewind(session_id, target_uuid, include_response)
+
+                # Clean up checkpoints after the rewind point
+                self._cleanup_checkpoints_after_rewind(session_id, target_uuid)
             else:
                 errors.append(f"Chat rewind failed: {result.error}")
 
@@ -630,12 +666,24 @@ class CheckpointManager:
         except Exception as e:
             logger.error(f"Failed to sync database after rewind: {e}")
 
+    def _cleanup_checkpoints_after_rewind(self, session_id: str, target_uuid: str):
+        """Remove checkpoint records that are beyond the rewind point."""
+        try:
+            # Get the target checkpoint to find its index
+            target_checkpoint = database.get_checkpoint_by_message_uuid(session_id, target_uuid)
+            if target_checkpoint:
+                message_index = target_checkpoint.get('message_index', 0)
+                deleted = database.delete_session_checkpoints_after(session_id, message_index)
+                if deleted > 0:
+                    logger.info(f"Deleted {deleted} checkpoints after rewind for session {session_id}")
+        except Exception as e:
+            logger.error(f"Failed to cleanup checkpoints after rewind: {e}")
+
     def _find_git_ref_for_checkpoint(self, session_id: str, target_uuid: str) -> Optional[str]:
-        """Find the git ref associated with a checkpoint."""
-        checkpoints = self._checkpoint_store.get(session_id, [])
-        for cp in checkpoints:
-            if cp.message_uuid == target_uuid and cp.git_ref:
-                return cp.git_ref
+        """Find the git ref associated with a checkpoint from database."""
+        checkpoint = database.get_checkpoint_by_message_uuid(session_id, target_uuid)
+        if checkpoint and checkpoint.get('git_ref'):
+            return checkpoint['git_ref']
         return None
 
     def _count_changed_files(self, working_dir: str, git_ref: str) -> int:
