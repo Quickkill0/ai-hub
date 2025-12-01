@@ -268,9 +268,8 @@ def parse_command_input(text: str) -> tuple[str, str]:
     return command_name, arguments
 
 
-# Built-in interactive commands that require CLI bridge
-# Note: "rewind" has been moved to settings-based non-interactive approach
-# and is now handled via REST API endpoints instead of PTY/CLI bridge
+# Built-in interactive commands that require CLI bridge (PTY-based)
+# These commands genuinely need terminal interaction and cannot be handled via REST API
 INTERACTIVE_COMMANDS = {
     "resume": {
         "description": "Resume a previous conversation",
@@ -279,11 +278,14 @@ INTERACTIVE_COMMANDS = {
 }
 
 # Built-in commands that use REST API instead of interactive CLI
+# V2: /rewind now uses direct JSONL manipulation - bulletproof, no PTY needed
 REST_API_COMMANDS = {
     "rewind": {
         "description": "Rewind conversation and/or code to a previous point",
         "api_endpoint": "/api/v1/commands/rewind/checkpoints/{session_id}",
-        "requires_session": True
+        "requires_session": True,
+        "method": "direct_jsonl",  # V2: No CLI interaction, direct file manipulation
+        "note": "V2 implementation uses direct JSONL truncation for bulletproof rewind"
     }
 }
 

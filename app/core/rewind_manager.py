@@ -1,12 +1,19 @@
 """
-Rewind Manager for non-interactive rewind operations.
+DEPRECATED: Rewind Manager for non-interactive rewind operations.
 
-This module provides a settings-based approach to rewind functionality,
-similar to how Claude Code authentication works via settings.json.
-Instead of spawning an interactive PTY, it:
-1. Reads conversation checkpoints from the session
-2. Configures rewind in settings.json
-3. Lets Claude handle the rewind on next interaction
+This module is DEPRECATED in favor of jsonl_rewind.py which uses direct JSONL manipulation.
+The old approach tried to:
+1. Read conversation checkpoints via Claude CLI
+2. Execute rewind by piping commands to Claude CLI
+3. Parse terminal output
+
+The new approach (jsonl_rewind.py) is bulletproof:
+1. Directly reads JSONL files
+2. Truncates JSONL at target message UUID
+3. No CLI interaction needed - SDK reads truncated JSONL on next resume
+
+Kept for backwards compatibility but should not be used for new code.
+See: app/core/jsonl_rewind.py and app/core/checkpoint_manager.py
 """
 
 import json

@@ -2,7 +2,14 @@
 CLI Bridge for interactive Claude Code commands
 
 This module provides PTY-based interaction with the Claude Code CLI
-for commands that require interactive terminal input (like /rewind).
+for commands that require interactive terminal input (like /resume).
+
+NOTE: The /rewind command has been moved to a new bulletproof implementation
+that uses direct JSONL manipulation instead of PTY-based CLI interaction.
+See: app/core/jsonl_rewind.py and app/core/checkpoint_manager.py
+
+This module is still used for /resume and other interactive commands that
+genuinely require terminal interaction.
 """
 
 import asyncio

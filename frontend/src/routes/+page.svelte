@@ -27,6 +27,7 @@
 	import { api, type FileUploadResponse } from '$lib/api/client';
 	import { marked } from 'marked';
 	import TerminalModal from '$lib/components/TerminalModal.svelte';
+	import RewindModal from '$lib/components/RewindModal.svelte';
 	import CommandAutocomplete from '$lib/components/CommandAutocomplete.svelte';
 	import { executeCommand, isSlashCommand, syncAfterRewind, type Command } from '$lib/api/commands';
 
@@ -55,10 +56,14 @@
 	let isUploading = false;
 	let textareas: Record<string, HTMLTextAreaElement> = {};
 
-	// Terminal modal state for /rewind and other interactive commands
+	// Terminal modal state for /resume and other interactive commands
 	let showTerminalModal = false;
-	let terminalCommand = '/rewind';
+	let terminalCommand = '/resume';
 	let terminalSessionId = '';
+
+	// Rewind modal state (V2 - direct JSONL manipulation)
+	let showRewindModal = false;
+	let rewindSessionId = '';
 
 	// Command autocomplete state
 	let showCommandAutocomplete: Record<string, boolean> = {};
@@ -284,8 +289,8 @@
 		}
 	}
 
-	// Open the terminal modal for interactive commands
-	function openTerminalModal(tabId: string, command: string = '/rewind') {
+	// Open the terminal modal for interactive commands (like /resume)
+	function openTerminalModal(tabId: string, command: string = '/resume') {
 		const tab = $allTabs.find(t => t.id === tabId);
 		if (!tab?.sessionId) {
 			alert('Please start a conversation first before using this command.');
@@ -296,9 +301,38 @@
 		showTerminalModal = true;
 	}
 
-	// Handle rewind completion
+	// Open the rewind modal (V2 - direct JSONL manipulation)
+	function openRewindModal(tabId: string) {
+		const tab = $allTabs.find(t => t.id === tabId);
+		if (!tab?.sessionId) {
+			alert('Please start a conversation first before using rewind.');
+			return;
+		}
+		rewindSessionId = tab.sessionId;
+		showRewindModal = true;
+	}
+
+	// Handle rewind completion from RewindModal V2
+	async function handleRewindCompleteV2(success: boolean, messagesRemoved: number) {
+		console.log('Rewind V2 complete:', { success, messagesRemoved });
+
+		if (success && messagesRemoved > 0 && $activeTabId && rewindSessionId) {
+			// Reload the session to reflect changes
+			await tabs.loadSessionInTab($activeTabId, rewindSessionId);
+		}
+
+		rewindSessionId = '';
+	}
+
+	// Close the rewind modal
+	function closeRewindModal() {
+		showRewindModal = false;
+		rewindSessionId = '';
+	}
+
+	// Handle rewind completion from TerminalModal (legacy - for /resume)
 	async function handleRewindComplete(checkpointMessage: string | null, selectedOption: number | null) {
-		console.log('Rewind complete:', { checkpointMessage, selectedOption });
+		console.log('Rewind complete (legacy):', { checkpointMessage, selectedOption });
 
 		// Sync our chat if conversation was restored (options 1 or 2)
 		if (terminalSessionId && checkpointMessage && (selectedOption === 1 || selectedOption === 2)) {
@@ -1056,10 +1090,10 @@
 					</button>
 				</div>
 
-				<!-- Rewind Button -->
+				<!-- Rewind Button (V2 - direct JSONL manipulation) -->
 				{#if currentTab.sessionId}
 					<button
-						on:click={() => openTerminalModal(tabId, '/rewind')}
+						on:click={() => openRewindModal(tabId)}
 						class="flex items-center gap-1 px-2 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-muted rounded transition-colors"
 						title="Rewind conversation and/or code"
 						disabled={currentTab.isStreaming}
@@ -1742,13 +1776,22 @@
 	</div>
 {/if}
 
-<!-- Terminal Modal for interactive CLI commands -->
+<!-- Terminal Modal for interactive CLI commands (like /resume) -->
 {#if showTerminalModal && terminalSessionId}
 	<TerminalModal
 		sessionId={terminalSessionId}
 		command={terminalCommand}
 		onClose={closeTerminalModal}
 		onRewindComplete={handleRewindComplete}
+	/>
+{/if}
+
+<!-- Rewind Modal V2 - Direct JSONL manipulation (bulletproof) -->
+{#if showRewindModal && rewindSessionId}
+	<RewindModal
+		sessionId={rewindSessionId}
+		onClose={closeRewindModal}
+		onRewindComplete={handleRewindCompleteV2}
 	/>
 {/if}
 
