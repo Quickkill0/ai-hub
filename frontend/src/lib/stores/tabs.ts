@@ -581,12 +581,6 @@ function createTabsStore() {
 				break;
 			}
 
-			case 'queued': {
-				// Message was queued to active session - already added to UI in sendMessage
-				console.log(`[Tab ${tabId}] Message queued for processing`);
-				break;
-			}
-
 			case 'ping': {
 				const ws = tabConnections.get(tabId);
 				if (ws?.readyState === WebSocket.OPEN) {
