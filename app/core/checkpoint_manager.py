@@ -65,8 +65,15 @@ class GitSnapshotService:
     """
     Service for creating and restoring Git snapshots.
 
-    Uses a hidden branch (.claude-checkpoints) to store snapshots without
-    polluting the user's commit history.
+    Uses a hidden orphan branch (.claude-checkpoints) to store snapshots as
+    actual commits. This is more robust than stashes because:
+    - Commits persist even after stash clear/drop
+    - Commits work across push/pull operations
+    - Commits survive garbage collection
+    - Commits can be restored even after user commits new changes
+
+    The orphan branch is completely separate from the main history,
+    so it doesn't pollute the user's commit graph.
     """
 
     CHECKPOINT_BRANCH = ".claude-checkpoints"
@@ -85,12 +92,78 @@ class GitSnapshotService:
         except Exception:
             return False
 
+    def _run_git(self, working_dir: str, args: List[str], timeout: int = 30) -> subprocess.CompletedProcess:
+        """Run a git command and return the result."""
+        return subprocess.run(
+            ["git"] + args,
+            cwd=working_dir,
+            capture_output=True,
+            text=True,
+            timeout=timeout
+        )
+
+    def _ensure_checkpoint_branch(self, working_dir: str) -> bool:
+        """Ensure the checkpoint orphan branch exists."""
+        # Check if branch exists
+        result = self._run_git(working_dir, ["branch", "--list", self.CHECKPOINT_BRANCH])
+        if self.CHECKPOINT_BRANCH in result.stdout:
+            return True
+
+        # Create orphan branch with an initial empty commit
+        # We do this by creating a tree object and committing to it
+        try:
+            # Create an empty tree
+            result = self._run_git(working_dir, ["hash-object", "-t", "tree", "/dev/null"])
+            if result.returncode != 0:
+                # Fallback: write empty tree
+                result = self._run_git(working_dir, ["mktree"], timeout=5)
+                if result.returncode != 0:
+                    # Another fallback - create tree from empty index
+                    empty_tree = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"  # Git's empty tree hash
+                else:
+                    empty_tree = result.stdout.strip()
+            else:
+                empty_tree = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+
+            # Create initial commit on orphan branch
+            result = self._run_git(
+                working_dir,
+                ["commit-tree", empty_tree, "-m", "Initialize Claude checkpoint branch"]
+            )
+            if result.returncode != 0:
+                logger.warning(f"Failed to create initial commit: {result.stderr}")
+                return False
+
+            initial_commit = result.stdout.strip()
+
+            # Create the branch pointing to this commit
+            result = self._run_git(
+                working_dir,
+                ["branch", self.CHECKPOINT_BRANCH, initial_commit]
+            )
+            if result.returncode != 0:
+                logger.warning(f"Failed to create checkpoint branch: {result.stderr}")
+                return False
+
+            logger.info(f"Created checkpoint branch {self.CHECKPOINT_BRANCH}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to ensure checkpoint branch: {e}")
+            return False
+
     def create_snapshot(self, working_dir: str, message: str = "checkpoint") -> Optional[str]:
         """
         Create a git snapshot of the current working directory state.
 
-        This creates a commit on a hidden branch without affecting the user's
-        current branch or staging area.
+        This creates an actual commit on the hidden checkpoint branch,
+        capturing ALL files (tracked, modified, and untracked).
+
+        The snapshot persists even after:
+        - User commits changes
+        - User pushes to remote
+        - User runs git stash clear
+        - Garbage collection
 
         Returns:
             Git commit SHA if successful, None otherwise
@@ -100,100 +173,104 @@ class GitSnapshotService:
             return None
 
         try:
-            # Get current branch
-            result = subprocess.run(
-                ["git", "branch", "--show-current"],
-                cwd=working_dir,
-                capture_output=True,
-                text=True,
-                timeout=5
-            )
-            current_branch = result.stdout.strip()
-
             # Get current HEAD for reference
-            result = subprocess.run(
-                ["git", "rev-parse", "HEAD"],
-                cwd=working_dir,
-                capture_output=True,
-                text=True,
-                timeout=5
-            )
+            result = self._run_git(working_dir, ["rev-parse", "HEAD"])
             if result.returncode != 0:
-                # No commits yet
                 logger.debug("No commits in repo yet, skipping snapshot")
                 return None
 
             current_head = result.stdout.strip()
 
-            # Create a snapshot using git stash + apply approach
-            # This doesn't require switching branches or modifying index
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            stash_message = f"claude-checkpoint-{timestamp}: {message[:50]}"
+            # Check if there are any changes (tracked or untracked)
+            result = self._run_git(working_dir, ["status", "--porcelain"])
+            has_changes = bool(result.stdout.strip())
 
-            # Check if there are any changes to snapshot
-            result = subprocess.run(
-                ["git", "status", "--porcelain"],
-                cwd=working_dir,
-                capture_output=True,
-                text=True,
-                timeout=10
-            )
-
-            if not result.stdout.strip():
-                # No changes, use current HEAD as checkpoint
+            if not has_changes:
+                # No changes - just return current HEAD as the checkpoint
+                # This is valid because HEAD represents the exact state
                 logger.debug("No uncommitted changes, using current HEAD as checkpoint")
                 return current_head
 
-            # Create stash with untracked files
-            result = subprocess.run(
-                ["git", "stash", "push", "-u", "-m", stash_message],
-                cwd=working_dir,
-                capture_output=True,
-                text=True,
-                timeout=30
-            )
-
-            if result.returncode != 0:
-                logger.warning(f"Git stash failed: {result.stderr}")
-                return None
-
-            # Get the stash reference
-            result = subprocess.run(
-                ["git", "stash", "list", "-1"],
-                cwd=working_dir,
-                capture_output=True,
-                text=True,
-                timeout=5
-            )
-
-            if "claude-checkpoint" not in result.stdout:
-                logger.warning("Stash was not created (no changes?)")
+            # Ensure checkpoint branch exists
+            if not self._ensure_checkpoint_branch(working_dir):
+                logger.warning("Could not ensure checkpoint branch, falling back to HEAD")
                 return current_head
 
-            # Get the stash commit SHA
+            # Create a snapshot commit on the checkpoint branch
+            # We use git's low-level commands to avoid switching branches
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            commit_message = f"Claude checkpoint: {message[:100]}\n\nBase commit: {current_head[:8]}\nTimestamp: {timestamp}"
+
+            # Step 1: Create a temporary index with ALL current files
+            # Use GIT_INDEX_FILE to work with a separate index
+            temp_index = os.path.join(working_dir, ".git", "claude-checkpoint-index")
+
+            env = os.environ.copy()
+            env["GIT_INDEX_FILE"] = temp_index
+
+            # Remove old temp index if exists
+            if os.path.exists(temp_index):
+                os.remove(temp_index)
+
+            # Add all files to temp index (including untracked)
             result = subprocess.run(
-                ["git", "rev-parse", "stash@{0}"],
+                ["git", "add", "-A"],
                 cwd=working_dir,
                 capture_output=True,
                 text=True,
-                timeout=5
+                timeout=60,
+                env=env
             )
-            stash_sha = result.stdout.strip() if result.returncode == 0 else None
+            if result.returncode != 0:
+                logger.warning(f"Failed to add files to temp index: {result.stderr}")
+                return current_head
 
-            # Pop the stash to restore working directory
-            subprocess.run(
-                ["git", "stash", "pop"],
+            # Step 2: Write the tree from temp index
+            result = subprocess.run(
+                ["git", "write-tree"],
                 cwd=working_dir,
                 capture_output=True,
                 text=True,
-                timeout=30
+                timeout=30,
+                env=env
             )
+            if result.returncode != 0:
+                logger.warning(f"Failed to write tree: {result.stderr}")
+                return current_head
 
-            if stash_sha:
-                logger.info(f"Created git snapshot: {stash_sha[:8]} for {message[:50]}")
-                return stash_sha
+            tree_sha = result.stdout.strip()
 
-            return current_head
+            # Step 3: Get the current tip of checkpoint branch
+            result = self._run_git(working_dir, ["rev-parse", self.CHECKPOINT_BRANCH])
+            parent_commit = result.stdout.strip() if result.returncode == 0 else None
+
+            # Step 4: Create commit on checkpoint branch
+            commit_args = ["commit-tree", tree_sha, "-m", commit_message]
+            if parent_commit:
+                commit_args.extend(["-p", parent_commit])
+
+            result = self._run_git(working_dir, commit_args)
+            if result.returncode != 0:
+                logger.warning(f"Failed to create checkpoint commit: {result.stderr}")
+                return current_head
+
+            checkpoint_commit = result.stdout.strip()
+
+            # Step 5: Update checkpoint branch to point to new commit
+            result = self._run_git(
+                working_dir,
+                ["update-ref", f"refs/heads/{self.CHECKPOINT_BRANCH}", checkpoint_commit]
+            )
+            if result.returncode != 0:
+                logger.warning(f"Failed to update checkpoint branch: {result.stderr}")
+                return current_head
+
+            # Clean up temp index
+            if os.path.exists(temp_index):
+                os.remove(temp_index)
+
+            logger.info(f"Created git snapshot: {checkpoint_commit[:8]} for {message[:50]}")
+            return checkpoint_commit
 
         except subprocess.TimeoutExpired:
             logger.warning("Git snapshot timed out")
@@ -206,7 +283,10 @@ class GitSnapshotService:
         """
         Restore the working directory to a previous git snapshot.
 
-        This does a hard reset of the working directory to the snapshot state.
+        This restores all files from the snapshot commit without changing
+        the current branch's HEAD. It's like doing a selective checkout
+        of all files from the snapshot.
+
         WARNING: This will discard all uncommitted changes!
 
         Returns:
@@ -216,42 +296,39 @@ class GitSnapshotService:
             return False
 
         try:
-            # First, check if the ref exists
-            result = subprocess.run(
-                ["git", "cat-file", "-t", git_ref],
-                cwd=working_dir,
-                capture_output=True,
-                text=True,
-                timeout=5
-            )
-
+            # First, verify the ref exists and is a valid commit/tree
+            result = self._run_git(working_dir, ["cat-file", "-t", git_ref])
             if result.returncode != 0:
                 logger.error(f"Git ref {git_ref} does not exist")
                 return False
 
-            # Restore working directory from the snapshot
-            # Use checkout to restore all files without changing HEAD
-            result = subprocess.run(
-                ["git", "checkout", git_ref, "--", "."],
-                cwd=working_dir,
-                capture_output=True,
-                text=True,
-                timeout=60
-            )
-
-            if result.returncode != 0:
-                logger.error(f"Git restore failed: {result.stderr}")
+            obj_type = result.stdout.strip()
+            if obj_type not in ("commit", "tree"):
+                logger.error(f"Git ref {git_ref} is not a commit or tree (is {obj_type})")
                 return False
 
-            # Clean untracked files that weren't in the snapshot
-            # Note: This is aggressive - might want to make this optional
-            subprocess.run(
-                ["git", "clean", "-fd"],
-                cwd=working_dir,
-                capture_output=True,
-                text=True,
-                timeout=30
-            )
+            # Get the tree SHA if this is a commit
+            if obj_type == "commit":
+                result = self._run_git(working_dir, ["rev-parse", f"{git_ref}^{{tree}}"])
+                if result.returncode != 0:
+                    logger.error(f"Could not get tree for commit {git_ref}")
+                    return False
+                tree_sha = result.stdout.strip()
+            else:
+                tree_sha = git_ref
+
+            # Step 1: Clean working directory (remove untracked files)
+            self._run_git(working_dir, ["clean", "-fd"])
+
+            # Step 2: Reset index to match the snapshot tree
+            result = self._run_git(working_dir, ["read-tree", "--reset", "-u", tree_sha])
+            if result.returncode != 0:
+                logger.error(f"Failed to read-tree: {result.stderr}")
+                # Fallback: try checkout approach
+                result = self._run_git(working_dir, ["checkout", git_ref, "--", "."], timeout=120)
+                if result.returncode != 0:
+                    logger.error(f"Fallback checkout also failed: {result.stderr}")
+                    return False
 
             logger.info(f"Restored working directory to snapshot {git_ref[:8]}")
             return True
@@ -264,48 +341,36 @@ class GitSnapshotService:
             return False
 
     def list_snapshots(self, working_dir: str, limit: int = 20) -> List[Dict[str, Any]]:
-        """List recent git snapshots (from stash or checkpoint branch)."""
+        """List recent git snapshots from the checkpoint branch."""
         if not self.is_git_repo(working_dir):
             return []
 
         try:
-            # List stashes that are our checkpoints
-            result = subprocess.run(
-                ["git", "stash", "list"],
-                cwd=working_dir,
-                capture_output=True,
-                text=True,
-                timeout=10
+            # Check if checkpoint branch exists
+            result = self._run_git(working_dir, ["branch", "--list", self.CHECKPOINT_BRANCH])
+            if self.CHECKPOINT_BRANCH not in result.stdout:
+                return []
+
+            # List commits on checkpoint branch
+            result = self._run_git(
+                working_dir,
+                ["log", self.CHECKPOINT_BRANCH, f"--max-count={limit}",
+                 "--format=%H|%s|%ai"]
             )
+            if result.returncode != 0:
+                return []
 
             snapshots = []
             for line in result.stdout.strip().split('\n'):
-                if 'claude-checkpoint' in line:
-                    # Parse stash entry: stash@{0}: On branch: message
-                    parts = line.split(':', 2)
-                    if len(parts) >= 3:
-                        stash_ref = parts[0].strip()
-                        message = parts[2].strip() if len(parts) > 2 else ''
-
-                        # Get SHA
-                        sha_result = subprocess.run(
-                            ["git", "rev-parse", stash_ref],
-                            cwd=working_dir,
-                            capture_output=True,
-                            text=True,
-                            timeout=5
-                        )
-                        sha = sha_result.stdout.strip() if sha_result.returncode == 0 else None
-
-                        if sha:
-                            snapshots.append({
-                                'ref': sha,
-                                'stash_ref': stash_ref,
-                                'message': message
-                            })
-
-                        if len(snapshots) >= limit:
-                            break
+                if not line or '|' not in line:
+                    continue
+                parts = line.split('|', 2)
+                if len(parts) >= 2:
+                    snapshots.append({
+                        'ref': parts[0],
+                        'message': parts[1],
+                        'timestamp': parts[2] if len(parts) > 2 else ''
+                    })
 
             return snapshots
 
