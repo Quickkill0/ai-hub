@@ -1333,35 +1333,8 @@ async def stream_to_websocket(
     # Initialize sdk_session_id - use resume_id if resuming, otherwise None until we get it from SDK
     sdk_session_id = resume_id
 
-    # Handle /context command specially - SDK outputs to terminal, not as SystemMessage
-    if prompt.strip().lower() == "/context":
-        # Generate our own context summary
-        context_info = {
-            "session_id": session_id,
-            "sdk_session_id": sdk_session_id,
-            "profile": profile.get("name", profile_id) if isinstance(profile, dict) else profile_id,
-            "project": project.get("name") if project else None,
-            "working_directory": options.cwd if options else None,
-            "model": options.model if options else None,
-            "tools_available": len(options.allowed_tools) if options and options.allowed_tools else "all",
-            "system_prompt_preview": (str(options.system_prompt)[:500] + "...") if options and options.system_prompt and len(str(options.system_prompt)) > 500 else (str(options.system_prompt) if options and options.system_prompt else None),
-        }
-        yield {
-            "type": "system",
-            "subtype": "context",
-            "data": context_info
-        }
-        yield {
-            "type": "done",
-            "session_id": session_id,
-            "sdk_session_id": sdk_session_id,
-            "metadata": {"handled_locally": True}
-        }
-        # Clean up
-        state.is_streaming = False
-        return
-
     # Execute query
+    # Note: SDK built-in commands like /context and /compact are passed directly to the SDK
     response_text = []
     tool_messages = []  # Collect tool use/result messages for storage
     task_tool_uses = {}  # Track Task (subagent) tool uses by tool_id
