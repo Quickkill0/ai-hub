@@ -608,11 +608,12 @@ function createTabsStore() {
 							isStreaming: false,
 							sessionId: data.session_id as string || tab.sessionId,
 							title,
-							// Accumulate tokens (add to existing totals)
+							// Accumulate input/output tokens (add to existing totals)
 							totalTokensIn: tab.totalTokensIn + tokensIn,
 							totalTokensOut: tab.totalTokensOut + tokensOut,
-							totalCacheCreationTokens: tab.totalCacheCreationTokens + cacheCreationTokens,
-							totalCacheReadTokens: tab.totalCacheReadTokens + cacheReadTokens
+							// Cache tokens represent current state, not incremental - use latest values
+							totalCacheCreationTokens: cacheCreationTokens,
+							totalCacheReadTokens: cacheReadTokens
 						};
 					})
 				}));

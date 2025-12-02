@@ -395,9 +395,10 @@ def get_session_cost_from_jsonl(
 
     total_input_tokens = 0
     total_output_tokens = 0
-    cache_creation_tokens = 0
-    cache_read_tokens = 0
     model = None
+
+    # Track the last usage data - for cache tokens we want the final state
+    last_usage = {}
 
     for entry in parse_jsonl_file(jsonl_path):
         if entry.get("type") == "assistant":
@@ -408,17 +409,22 @@ def get_session_cost_from_jsonl(
             if not model:
                 model = message_data.get("model")
 
-            # Sum up tokens - keep cache tokens separate
+            # Sum up input/output tokens (these are incremental per turn)
             total_input_tokens += usage.get("input_tokens", 0)
             total_output_tokens += usage.get("output_tokens", 0)
-            cache_creation_tokens += usage.get("cache_creation_input_tokens", 0)
-            cache_read_tokens += usage.get("cache_read_input_tokens", 0)
 
+            # Keep track of latest usage for cache tokens
+            if usage:
+                last_usage = usage
+
+    # Cache tokens from final message represent current cache state
+    # - cache_creation_input_tokens: take from last message (represents final cache size)
+    # - cache_read_input_tokens: take from last message (represents what was read last)
     return {
         "total_tokens_in": total_input_tokens,
         "total_tokens_out": total_output_tokens,
-        "cache_creation_tokens": cache_creation_tokens,
-        "cache_read_tokens": cache_read_tokens,
+        "cache_creation_tokens": last_usage.get("cache_creation_input_tokens", 0),
+        "cache_read_tokens": last_usage.get("cache_read_input_tokens", 0),
         "model": model
     }
 
