@@ -74,7 +74,8 @@
 	// Simple auto-scroll: always scroll unless user scrolled up recently
 	let autoScrollPaused: Record<string, boolean> = {};
 	let scrollPauseTimers: Record<string, ReturnType<typeof setTimeout>> = {};
-	const SCROLL_RESUME_DELAY = 3000; // Resume auto-scroll after 3s of no user scroll
+	let isAutoScrolling = false; // Prevent scroll handler from triggering during auto-scroll
+	const SCROLL_RESUME_DELAY = 5000; // Resume auto-scroll after 5s of no user scroll
 	let showProfileModal = false;
 	let showProjectModal = false;
 	let showNewProfileForm = false;
@@ -226,7 +227,12 @@
 	function scrollToBottom(tabId: string) {
 		const container = messagesContainers[tabId];
 		if (container) {
+			isAutoScrolling = true;
 			container.scrollTop = container.scrollHeight;
+			// Reset flag after scroll completes
+			requestAnimationFrame(() => {
+				isAutoScrolling = false;
+			});
 		}
 	}
 
@@ -239,6 +245,9 @@
 
 	// Handle user scroll - pause auto-scroll temporarily when scrolling up
 	function handleScroll(tabId: string) {
+		// Ignore scroll events triggered by auto-scroll
+		if (isAutoScrolling) return;
+
 		const container = messagesContainers[tabId];
 		if (!container) return;
 
@@ -497,8 +506,14 @@
 			console.log('[Page] Ignoring session click while loading');
 			return;
 		}
-		tabs.openSession(sessionId);
+		const tabId = tabs.openSession(sessionId);
 		sidebarOpen = false;
+
+		// Reset auto-scroll state and scroll to bottom after session loads
+		if (tabId) {
+			autoScrollPaused[tabId] = false;
+			setTimeout(() => scrollToBottom(tabId), 100);
+		}
 	}
 
 	async function deleteSession(e: Event, sessionId: string) {
