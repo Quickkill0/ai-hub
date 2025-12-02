@@ -55,6 +55,8 @@ export interface ChatTab {
 	error: string | null;
 	profile: string;
 	project: string;
+	totalTokensIn: number;
+	totalTokensOut: number;
 }
 
 interface TabsState {
@@ -114,7 +116,9 @@ function createTabsStore() {
 			wsConnected: false,
 			error: null,
 			profile: getPersistedProfile(),
-			project: getPersistedProject()
+			project: getPersistedProject(),
+			totalTokensIn: 0,
+			totalTokensOut: 0
 		}],
 		activeTabId: initialTabId,
 		profiles: [],
@@ -483,6 +487,9 @@ function createTabsStore() {
 
 			case 'done': {
 				const metadata = data.metadata as Record<string, unknown>;
+				// Extract token counts from metadata
+				const tokensIn = (metadata?.tokens_in as number) || 0;
+				const tokensOut = (metadata?.tokens_out as number) || 0;
 
 				update(s => ({
 					...s,
@@ -520,7 +527,10 @@ function createTabsStore() {
 							messages,
 							isStreaming: false,
 							sessionId: data.session_id as string || tab.sessionId,
-							title
+							title,
+							// Accumulate tokens (add to existing totals)
+							totalTokensIn: tab.totalTokensIn + tokensIn,
+							totalTokensOut: tab.totalTokensOut + tokensOut
 						};
 					})
 				}));
@@ -686,7 +696,9 @@ function createTabsStore() {
 				wsConnected: false,
 				error: null,
 				profile: state.defaultProfile,
-				project: state.defaultProject
+				project: state.defaultProject,
+				totalTokensIn: 0,
+				totalTokensOut: 0
 			};
 
 			update(s => ({
@@ -854,7 +866,9 @@ function createTabsStore() {
 					sessionId: session.id,
 					messages,
 					title,
-					error: null
+					error: null,
+					totalTokensIn: session.total_tokens_in || 0,
+					totalTokensOut: session.total_tokens_out || 0
 				});
 
 				return true;
@@ -917,7 +931,9 @@ function createTabsStore() {
 				messages: [],
 				isStreaming: false,
 				error: null,
-				title: 'New Chat'
+				title: 'New Chat',
+				totalTokensIn: 0,
+				totalTokensOut: 0
 			});
 			connectTab(tabId);
 		},

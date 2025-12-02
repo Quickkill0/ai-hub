@@ -302,6 +302,12 @@ async def execute_query(
                 metadata["num_turns"] = message.num_turns
                 metadata["total_cost_usd"] = message.total_cost_usd
                 metadata["is_error"] = message.is_error
+                # Extract token counts from usage dict
+                if message.usage:
+                    metadata["tokens_in"] = message.usage.get("input_tokens", 0)
+                    metadata["tokens_out"] = message.usage.get("output_tokens", 0)
+                    metadata["cache_creation_tokens"] = message.usage.get("cache_creation_input_tokens", 0)
+                    metadata["cache_read_tokens"] = message.usage.get("cache_read_input_tokens", 0)
 
     except Exception as e:
         logger.error(f"Query execution error: {e}")
@@ -313,6 +319,8 @@ async def execute_query(
             session_id=session_id,
             sdk_session_id=sdk_session_id,
             cost_increment=metadata.get("total_cost_usd", 0),
+            tokens_in_increment=metadata.get("tokens_in", 0),
+            tokens_out_increment=metadata.get("tokens_out", 0),
             turn_increment=metadata.get("num_turns", 0)
         )
 
@@ -350,8 +358,8 @@ async def execute_query(
         session_id=session_id,
         profile_id=profile_id,
         model=metadata.get("model"),
-        tokens_in=0,  # SDK doesn't provide this directly
-        tokens_out=0,
+        tokens_in=metadata.get("tokens_in", 0),
+        tokens_out=metadata.get("tokens_out", 0),
         cost_usd=metadata.get("total_cost_usd", 0),
         duration_ms=metadata.get("duration_ms", 0)
     )
@@ -635,6 +643,12 @@ async def stream_query(
                 metadata["num_turns"] = message.num_turns
                 metadata["total_cost_usd"] = message.total_cost_usd
                 metadata["is_error"] = message.is_error
+                # Extract token counts from usage dict
+                if message.usage:
+                    metadata["tokens_in"] = message.usage.get("input_tokens", 0)
+                    metadata["tokens_out"] = message.usage.get("output_tokens", 0)
+                    metadata["cache_creation_tokens"] = message.usage.get("cache_creation_input_tokens", 0)
+                    metadata["cache_read_tokens"] = message.usage.get("cache_read_input_tokens", 0)
 
     except asyncio.CancelledError:
         interrupted = True
@@ -668,6 +682,8 @@ async def stream_query(
             session_id=session_id,
             sdk_session_id=sdk_session_id,
             cost_increment=metadata.get("total_cost_usd", 0),
+            tokens_in_increment=metadata.get("tokens_in", 0),
+            tokens_out_increment=metadata.get("tokens_out", 0),
             turn_increment=metadata.get("num_turns", 0)
         )
         logger.info(f"Updated session {session_id}, sdk_session_id={sdk_session_id}")
@@ -721,8 +737,8 @@ async def stream_query(
             session_id=session_id,
             profile_id=profile_id,
             model=metadata.get("model"),
-            tokens_in=0,
-            tokens_out=0,
+            tokens_in=metadata.get("tokens_in", 0),
+            tokens_out=metadata.get("tokens_out", 0),
             cost_usd=metadata.get("total_cost_usd", 0),
             duration_ms=metadata.get("duration_ms", 0)
         )
@@ -970,6 +986,12 @@ async def _run_background_query(
                 metadata["num_turns"] = message.num_turns
                 metadata["total_cost_usd"] = message.total_cost_usd
                 metadata["is_error"] = message.is_error
+                # Extract token counts from usage dict
+                if message.usage:
+                    metadata["tokens_in"] = message.usage.get("input_tokens", 0)
+                    metadata["tokens_out"] = message.usage.get("output_tokens", 0)
+                    metadata["cache_creation_tokens"] = message.usage.get("cache_creation_input_tokens", 0)
+                    metadata["cache_read_tokens"] = message.usage.get("cache_read_input_tokens", 0)
 
     except asyncio.CancelledError:
         interrupted = True
@@ -1000,6 +1022,8 @@ async def _run_background_query(
             session_id=session_id,
             sdk_session_id=sdk_session_id,
             cost_increment=metadata.get("total_cost_usd", 0),
+            tokens_in_increment=metadata.get("tokens_in", 0),
+            tokens_out_increment=metadata.get("tokens_out", 0),
             turn_increment=metadata.get("num_turns", 0)
         )
         logger.info(f"[Background] Updated session {session_id}, sdk_session_id={sdk_session_id}")
@@ -1053,8 +1077,8 @@ async def _run_background_query(
             session_id=session_id,
             profile_id=profile["id"],
             model=metadata.get("model"),
-            tokens_in=0,
-            tokens_out=0,
+            tokens_in=metadata.get("tokens_in", 0),
+            tokens_out=metadata.get("tokens_out", 0),
             cost_usd=metadata.get("total_cost_usd", 0),
             duration_ms=metadata.get("duration_ms", 0)
         )
@@ -1405,6 +1429,12 @@ async def stream_to_websocket(
                 metadata["num_turns"] = message.num_turns
                 metadata["total_cost_usd"] = message.total_cost_usd
                 metadata["is_error"] = message.is_error
+                # Extract token counts from usage dict
+                if message.usage:
+                    metadata["tokens_in"] = message.usage.get("input_tokens", 0)
+                    metadata["tokens_out"] = message.usage.get("output_tokens", 0)
+                    metadata["cache_creation_tokens"] = message.usage.get("cache_creation_input_tokens", 0)
+                    metadata["cache_read_tokens"] = message.usage.get("cache_read_input_tokens", 0)
 
     except asyncio.CancelledError:
         interrupted = True
@@ -1433,6 +1463,8 @@ async def stream_to_websocket(
         sdk_session_id=sdk_session_id,
         title=title,
         cost_increment=metadata.get("total_cost_usd", 0),
+        tokens_in_increment=metadata.get("tokens_in", 0),
+        tokens_out_increment=metadata.get("tokens_out", 0),
         turn_increment=metadata.get("num_turns", 0)
     )
     logger.info(f"[WS] Updated session {session_id}, sdk_session_id={sdk_session_id}, title={title}")
@@ -1473,8 +1505,8 @@ async def stream_to_websocket(
             session_id=session_id,
             profile_id=profile_id,
             model=metadata.get("model"),
-            tokens_in=0,
-            tokens_out=0,
+            tokens_in=metadata.get("tokens_in", 0),
+            tokens_out=metadata.get("tokens_out", 0),
             cost_usd=metadata.get("total_cost_usd", 0),
             duration_ms=metadata.get("duration_ms", 0)
         )
