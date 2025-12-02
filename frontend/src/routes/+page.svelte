@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount, onDestroy, afterUpdate } from 'svelte';
+	import { onMount, onDestroy, afterUpdate, tick } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { auth, username, claudeAuthenticated, isAuthenticated, isAdmin } from '$lib/stores/auth';
 	import {
@@ -222,33 +222,42 @@
 		}
 	}
 
-	// Scroll to bottom helper - uses RAF to ensure DOM is fully laid out
+	// Scroll to bottom - aggressive approach with multiple fallbacks
 	function scrollToBottom(tabId: string) {
 		const container = messagesContainers[tabId];
 		if (!container) return;
-
-		// Scroll immediately
 		container.scrollTop = container.scrollHeight;
+	}
 
-		// Also scroll after next frame to catch layout updates
+	// Force scroll after DOM updates - using tick() for proper timing
+	async function forceScrollToBottom() {
+		if (!$activeTabId) return;
+		await tick(); // Wait for Svelte to update DOM
+		scrollToBottom($activeTabId);
+		// Double-tap with RAF for layout-dependent updates
 		requestAnimationFrame(() => {
-			if (container) {
-				container.scrollTop = container.scrollHeight;
-			}
+			if ($activeTabId) scrollToBottom($activeTabId);
 		});
 	}
 
-	// ALWAYS scroll to bottom after every DOM update
+	// Scroll after every DOM update
 	afterUpdate(() => {
-		if ($activeTabId) {
-			scrollToBottom($activeTabId);
-		}
+		forceScrollToBottom();
 	});
 
-	// Also scroll when active tab changes (needs tick for DOM to update)
-	$: if ($activeTabId) {
-		// Use setTimeout to ensure we're after the DOM update
-		setTimeout(() => scrollToBottom($activeTabId!), 0);
+	// Scroll when messages change (reactive to the actual data)
+	$: if ($activeTab?.messages) {
+		forceScrollToBottom();
+	}
+
+	// Scroll when switching tabs
+	let previousTabId: string | null = null;
+	$: if ($activeTabId && $activeTabId !== previousTabId) {
+		previousTabId = $activeTabId;
+		// Multiple attempts to catch the container binding
+		forceScrollToBottom();
+		setTimeout(forceScrollToBottom, 50);
+		setTimeout(forceScrollToBottom, 150);
 	}
 
 	async function handleSubmit(tabId: string) {
