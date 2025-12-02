@@ -1184,7 +1184,9 @@
 						>
 							<div class="flex-1 min-w-0">
 								<p class="text-sm text-foreground truncate">{truncateTitle(session.title)}</p>
-								<p class="text-xs text-muted-foreground">{formatDate(session.updated_at)}</p>
+								<p class="text-xs text-muted-foreground">
+									{formatDate(session.updated_at)}{#if session.total_cost_usd}<span class="text-green-500 ml-2">{formatSessionCost(session.total_cost_usd)}</span>{/if}
+								</p>
 							</div>
 						</div>
 					{/each}
