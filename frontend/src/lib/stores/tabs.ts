@@ -635,6 +635,11 @@ function createTabsStore() {
 				const cacheCreationTokens = (metadata?.cache_creation_tokens as number) || 0;
 				const cacheReadTokens = (metadata?.cache_read_tokens as number) || 0;
 
+				// Check if this is a slash command response (no token data)
+				// Slash commands like /context, /compact don't use the model and have no tokens
+				const isSlashCommand = turnTokensIn === 0 && turnTokensOut === 0 &&
+					cacheCreationTokens === 0 && cacheReadTokens === 0;
+
 				update(s => ({
 					...s,
 					tabs: s.tabs.map(tab => {
@@ -664,6 +669,18 @@ function createTabsStore() {
 							if (firstUserMsg) {
 								title = firstUserMsg.content.substring(0, 30) + (firstUserMsg.content.length > 30 ? '...' : '');
 							}
+						}
+
+						// Skip token updates for slash commands - they don't use the model
+						if (isSlashCommand) {
+							return {
+								...tab,
+								messages,
+								isStreaming: false,
+								sessionId: data.session_id as string || tab.sessionId,
+								title
+								// Keep existing token values unchanged
+							};
 						}
 
 						// Calculate new totals: baseline (from history) + accumulated turn tokens
