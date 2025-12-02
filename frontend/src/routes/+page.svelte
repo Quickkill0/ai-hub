@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount, onDestroy } from 'svelte';
+	import { onMount, onDestroy, afterUpdate } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { auth, username, claudeAuthenticated, isAuthenticated, isAdmin } from '$lib/stores/auth';
 	import {
@@ -230,27 +230,12 @@
 		}
 	}
 
-	// Auto-scroll: always scroll to bottom unless user paused it
-	$: if ($activeTab && messagesContainers[$activeTab.id]) {
-		const tabId = $activeTab.id;
-		const messages = $activeTab.messages;
-		// Trigger on any message change (reactive dependency)
-		if (messages && messages.length >= 0) {
-			const lastMsg = messages[messages.length - 1];
-			const contentLen = lastMsg?.content?.length || 0;
-			// Use void to create dependency without unused variable warning
-			void contentLen;
-
-			if (!autoScrollPaused[tabId]) {
-				requestAnimationFrame(() => scrollToBottom(tabId));
-			}
+	// Auto-scroll after every DOM update (new messages, content changes, etc.)
+	afterUpdate(() => {
+		if ($activeTabId && !autoScrollPaused[$activeTabId]) {
+			scrollToBottom($activeTabId);
 		}
-	}
-
-	// Also scroll when switching tabs
-	$: if ($activeTabId) {
-		setTimeout(() => scrollToBottom($activeTabId!), 0);
-	}
+	});
 
 	// Handle user scroll - pause auto-scroll temporarily when scrolling up
 	function handleScroll(tabId: string) {
