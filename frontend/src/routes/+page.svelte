@@ -44,8 +44,6 @@
 	let tabInputs: Record<string, string> = {};
 	let tabUploadedFiles: Record<string, FileUploadResponse[]> = {};
 
-	let messagesContainers: Record<string, HTMLElement> = {};
-	let autoScrollEnabled: Record<string, boolean> = {}; // Track auto-scroll per tab
 	let sidebarOpen = false;
 	let sidebarTab: 'my-chats' | 'admin' = 'my-chats';
 
@@ -77,51 +75,53 @@
 	// Auto-scroll: Simple logic
 	// - Always scroll to bottom UNLESS user scrolls up to read
 	// - Re-enable auto-scroll when user scrolls back to bottom
+	// Using a Svelte action for reliable DOM access
 
-	function isNearBottom(container: HTMLElement): boolean {
-		const threshold = 100; // pixels from bottom
-		return container.scrollHeight - container.scrollTop - container.clientHeight < threshold;
-	}
+	function autoScroll(node: HTMLElement, tabId: string) {
+		let userScrolledUp = false;
 
-	function scrollToBottom(tabId: string, retries = 5) {
-		const container = messagesContainers[tabId];
-		if (!container) {
-			// Container not yet bound - retry after a frame
-			if (retries > 0) {
-				requestAnimationFrame(() => scrollToBottom(tabId, retries - 1));
+		function isNearBottom(): boolean {
+			const threshold = 100;
+			return node.scrollHeight - node.scrollTop - node.clientHeight < threshold;
+		}
+
+		function scrollToBottom() {
+			node.scrollTop = node.scrollHeight;
+		}
+
+		function handleScroll() {
+			userScrolledUp = !isNearBottom();
+		}
+
+		// Create a MutationObserver to watch for content changes
+		const observer = new MutationObserver(() => {
+			if (!userScrolledUp) {
+				scrollToBottom();
 			}
-			return;
-		}
-		container.scrollTop = container.scrollHeight;
-	}
+		});
 
-	function handleScroll(tabId: string) {
-		const container = messagesContainers[tabId];
-		if (!container) return;
+		observer.observe(node, {
+			childList: true,
+			subtree: true,
+			characterData: true
+		});
 
-		// If user is near bottom, enable auto-scroll
-		// If user scrolled up, disable auto-scroll
-		autoScrollEnabled[tabId] = isNearBottom(container);
-	}
+		node.addEventListener('scroll', handleScroll);
 
-	// Auto-scroll when messages change (if enabled)
-	$: if ($activeTab?.messages && $activeTabId) {
-		const tabId = $activeTabId;
-		// Default to enabled for new tabs
-		if (autoScrollEnabled[tabId] === undefined) {
-			autoScrollEnabled[tabId] = true;
-		}
-		if (autoScrollEnabled[tabId]) {
-			tick().then(() => scrollToBottom(tabId));
-		}
-	}
+		// Initial scroll to bottom
+		scrollToBottom();
 
-	// Scroll when switching tabs (always scroll to show current state)
-	let previousTabId: string | null = null;
-	$: if ($activeTabId && $activeTabId !== previousTabId) {
-		previousTabId = $activeTabId;
-		autoScrollEnabled[$activeTabId] = true; // Reset to enabled on tab switch
-		scrollToBottom($activeTabId); // Will retry via RAF if container not ready
+		return {
+			update(newTabId: string) {
+				// When tab changes, reset and scroll
+				userScrolledUp = false;
+				scrollToBottom();
+			},
+			destroy() {
+				observer.disconnect();
+				node.removeEventListener('scroll', handleScroll);
+			}
+		};
 	}
 
 	let showProfileModal = false;
@@ -516,14 +516,9 @@
 			console.log('[Page] Ignoring session click while loading');
 			return;
 		}
-		const tabId = tabs.openSession(sessionId);
+		tabs.openSession(sessionId);
 		sidebarOpen = false;
-
-		// Enable auto-scroll and scroll after session loads
-		if (tabId) {
-			autoScrollEnabled[tabId] = true;
-			tick().then(() => scrollToBottom(tabId));
-		}
+		// Auto-scroll is handled by the autoScroll action on the messages container
 	}
 
 	async function deleteSession(e: Event, sessionId: string) {
@@ -1500,8 +1495,7 @@
 
 			<!-- Messages Area -->
 			<div
-				bind:this={messagesContainers[tabId]}
-				on:scroll={() => handleScroll(tabId)}
+				use:autoScroll={tabId}
 				class="flex-1 overflow-y-auto"
 			>
 				{#if currentTab.messages.length === 0}
