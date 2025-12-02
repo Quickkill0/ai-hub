@@ -359,12 +359,28 @@
 	}
 
 	// Handle rewind completion from RewindModal V2
-	async function handleRewindCompleteV2(success: boolean, messagesRemoved: number) {
-		console.log('Rewind V2 complete:', { success, messagesRemoved });
+	async function handleRewindCompleteV2(success: boolean, messagesRemoved: number, messageContent?: string) {
+		console.log('Rewind V2 complete:', { success, messagesRemoved, messageContent });
 
 		if (success && messagesRemoved > 0 && $activeTabId && rewindSessionId) {
 			// Reload the session to reflect changes
 			await tabs.loadSessionInTab($activeTabId, rewindSessionId);
+
+			// Populate the input field with the rewound message so user can edit and resend
+			if (messageContent) {
+				tabInputs[$activeTabId] = messageContent;
+				tabInputs = tabInputs; // Trigger Svelte reactivity
+
+				// Focus the textarea after a short delay
+				setTimeout(() => {
+					const textarea = textareas[$activeTabId];
+					if (textarea) {
+						textarea.focus();
+						// Move cursor to end
+						textarea.selectionStart = textarea.selectionEnd = textarea.value.length;
+					}
+				}, 100);
+			}
 		}
 
 		rewindSessionId = '';
@@ -1368,7 +1384,7 @@
 				<div class="flex items-center gap-2 sm:gap-3">
 					<!-- Context usage dropdown (only show if any tokens > 0) -->
 					{#if currentTab.totalTokensIn > 0 || currentTab.totalTokensOut > 0}
-						{@const contextUsed = currentTab.totalTokensIn + currentTab.totalTokensOut + currentTab.totalCacheCreationTokens + currentTab.totalCacheReadTokens}
+						{@const contextUsed = currentTab.totalTokensIn + currentTab.totalTokensOut + currentTab.totalCacheCreationTokens}
 						{@const contextMax = 200000}
 						{@const contextPercent = Math.min((contextUsed / contextMax) * 100, 100)}
 						<div class="relative group">
