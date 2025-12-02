@@ -148,6 +148,8 @@ async def get_session(request: Request, session_id: str, token: str = Depends(re
                         "toolName": m.get("toolName"),  # camelCase for frontend
                         "toolInput": m.get("toolInput"),  # camelCase for frontend
                         "toolId": m.get("toolId"),
+                        "toolResult": m.get("toolResult"),  # Tool output grouped with tool_use
+                        "toolStatus": m.get("toolStatus"),  # Status: running, complete, error
                         "tool_name": m.get("toolName"),  # Also include snake_case for compatibility
                         "tool_input": m.get("toolInput"),  # Also include snake_case for compatibility
                         "metadata": m.get("metadata"),
