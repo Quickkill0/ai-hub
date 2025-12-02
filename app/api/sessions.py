@@ -140,7 +140,7 @@ async def get_session(request: Request, session_id: str, token: str = Depends(re
                     timestamp = m.get("metadata", {}).get("timestamp")
                     # Don't pass raw timestamp strings to Pydantic datetime field
                     # The frontend handles timestamp display from metadata anyway
-                    messages.append({
+                    msg_data = {
                         "id": m.get("id", i),
                         "role": m.get("role", "user"),
                         "content": m.get("content", ""),
@@ -152,7 +152,15 @@ async def get_session(request: Request, session_id: str, token: str = Depends(re
                         "tool_input": m.get("toolInput"),  # Also include snake_case for compatibility
                         "metadata": m.get("metadata"),
                         "created_at": None  # Let Pydantic use default; timestamp is in metadata
-                    })
+                    }
+                    # Include subagent-specific fields if present
+                    if m.get("type") == "subagent":
+                        msg_data["agentId"] = m.get("agentId")
+                        msg_data["agentType"] = m.get("agentType")
+                        msg_data["agentDescription"] = m.get("agentDescription")
+                        msg_data["agentStatus"] = m.get("agentStatus")
+                        msg_data["agentChildren"] = m.get("agentChildren")
+                    messages.append(msg_data)
 
             # Get token usage from JSONL - always load cache tokens since they're not in DB
             # Also load input/output tokens if database doesn't have them
