@@ -145,6 +145,7 @@ async def get_session(request: Request, session_id: str, token: str = Depends(re
                         "role": m.get("role", "user"),
                         "content": m.get("content", ""),
                         "type": m.get("type"),  # Critical for tool_use/tool_result rendering
+                        "subtype": m.get("subtype"),  # For system messages (e.g., local_command)
                         "toolName": m.get("toolName"),  # camelCase for frontend
                         "toolInput": m.get("toolInput"),  # camelCase for frontend
                         "toolId": m.get("toolId"),

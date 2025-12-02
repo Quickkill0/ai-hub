@@ -184,7 +184,8 @@ class SessionMessage(BaseModel):
     id: Any  # Can be int from DB or string from JSONL
     role: str  # user, assistant, system, tool
     content: str
-    type: Optional[str] = None  # text, tool_use, tool_result, subagent - critical for rendering
+    type: Optional[str] = None  # text, tool_use, tool_result, subagent, system - critical for rendering
+    subtype: Optional[str] = None  # For system messages (e.g., local_command, compact_boundary)
     tool_name: Optional[str] = None  # snake_case for DB compatibility
     tool_input: Optional[Dict[str, Any]] = None  # snake_case for DB compatibility
     toolName: Optional[str] = None  # camelCase for frontend compatibility
