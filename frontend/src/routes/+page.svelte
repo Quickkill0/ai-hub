@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount, onDestroy, afterUpdate, tick } from 'svelte';
+	import { onMount, onDestroy, tick } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { auth, username, claudeAuthenticated, isAuthenticated, isAdmin } from '$lib/stores/auth';
 	import {
@@ -45,6 +45,7 @@
 	let tabUploadedFiles: Record<string, FileUploadResponse[]> = {};
 
 	let messagesContainers: Record<string, HTMLElement> = {};
+	let autoScrollEnabled: Record<string, boolean> = {}; // Track auto-scroll per tab
 	let sidebarOpen = false;
 	let sidebarTab: 'my-chats' | 'admin' = 'my-chats';
 
@@ -73,8 +74,50 @@
 		sidebarPinned = !sidebarPinned;
 	}
 
-	// Auto-scroll: ALWAYS scroll to bottom. No exceptions. No pausing.
-	// User can scroll up to read, but it will keep scrolling on new content.
+	// Auto-scroll: Simple logic
+	// - Always scroll to bottom UNLESS user scrolls up to read
+	// - Re-enable auto-scroll when user scrolls back to bottom
+
+	function isNearBottom(container: HTMLElement): boolean {
+		const threshold = 100; // pixels from bottom
+		return container.scrollHeight - container.scrollTop - container.clientHeight < threshold;
+	}
+
+	function scrollToBottom(tabId: string) {
+		const container = messagesContainers[tabId];
+		if (!container) return;
+		container.scrollTop = container.scrollHeight;
+	}
+
+	function handleScroll(tabId: string) {
+		const container = messagesContainers[tabId];
+		if (!container) return;
+
+		// If user is near bottom, enable auto-scroll
+		// If user scrolled up, disable auto-scroll
+		autoScrollEnabled[tabId] = isNearBottom(container);
+	}
+
+	// Auto-scroll when messages change (if enabled)
+	$: if ($activeTab?.messages && $activeTabId) {
+		const tabId = $activeTabId;
+		// Default to enabled for new tabs
+		if (autoScrollEnabled[tabId] === undefined) {
+			autoScrollEnabled[tabId] = true;
+		}
+		if (autoScrollEnabled[tabId]) {
+			tick().then(() => scrollToBottom(tabId));
+		}
+	}
+
+	// Scroll when switching tabs (always scroll to show current state)
+	let previousTabId: string | null = null;
+	$: if ($activeTabId && $activeTabId !== previousTabId) {
+		previousTabId = $activeTabId;
+		autoScrollEnabled[$activeTabId] = true; // Reset to enabled on tab switch
+		tick().then(() => scrollToBottom($activeTabId!));
+	}
+
 	let showProfileModal = false;
 	let showProjectModal = false;
 	let showNewProfileForm = false;
@@ -220,44 +263,6 @@
 				tabInputs[tab.id] = '';
 			}
 		}
-	}
-
-	// Scroll to bottom - aggressive approach with multiple fallbacks
-	function scrollToBottom(tabId: string) {
-		const container = messagesContainers[tabId];
-		if (!container) return;
-		container.scrollTop = container.scrollHeight;
-	}
-
-	// Force scroll after DOM updates - using tick() for proper timing
-	async function forceScrollToBottom() {
-		if (!$activeTabId) return;
-		await tick(); // Wait for Svelte to update DOM
-		scrollToBottom($activeTabId);
-		// Double-tap with RAF for layout-dependent updates
-		requestAnimationFrame(() => {
-			if ($activeTabId) scrollToBottom($activeTabId);
-		});
-	}
-
-	// Scroll after every DOM update
-	afterUpdate(() => {
-		forceScrollToBottom();
-	});
-
-	// Scroll when messages change (reactive to the actual data)
-	$: if ($activeTab?.messages) {
-		forceScrollToBottom();
-	}
-
-	// Scroll when switching tabs
-	let previousTabId: string | null = null;
-	$: if ($activeTabId && $activeTabId !== previousTabId) {
-		previousTabId = $activeTabId;
-		// Multiple attempts to catch the container binding
-		forceScrollToBottom();
-		setTimeout(forceScrollToBottom, 50);
-		setTimeout(forceScrollToBottom, 150);
 	}
 
 	async function handleSubmit(tabId: string) {
@@ -508,15 +513,10 @@
 		const tabId = tabs.openSession(sessionId);
 		sidebarOpen = false;
 
-		// Ensure auto-scroll is enabled and scroll after session loads
+		// Enable auto-scroll and scroll after session loads
 		if (tabId) {
-			userScrolledAway = false;
-			isUserInteracting = false;
-			// Try scrolling multiple times as messages load async from API
-			setTimeout(() => scrollToBottom(tabId), 50);
-			setTimeout(() => scrollToBottom(tabId), 200);
-			setTimeout(() => scrollToBottom(tabId), 500);
-			setTimeout(() => scrollToBottom(tabId), 1000);
+			autoScrollEnabled[tabId] = true;
+			tick().then(() => scrollToBottom(tabId));
 		}
 	}
 
@@ -1495,6 +1495,7 @@
 			<!-- Messages Area -->
 			<div
 				bind:this={messagesContainers[tabId]}
+				on:scroll={() => handleScroll(tabId)}
 				class="flex-1 overflow-y-auto"
 			>
 				{#if currentTab.messages.length === 0}
