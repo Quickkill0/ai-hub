@@ -37,7 +37,7 @@
 	interface Props {
 		sessionId: string;
 		onClose: () => void;
-		onRewindComplete: (success: boolean, messagesRemoved: number) => void;
+		onRewindComplete: (success: boolean, messagesRemoved: number, messageContent?: string) => void;
 	}
 
 	let { sessionId, onClose, onRewindComplete }: Props = $props();
@@ -51,7 +51,6 @@
 	// Rewind options
 	let restoreChat = $state(true);
 	let restoreCode = $state(false);
-	let includeResponse = $state(true);
 
 	// Load checkpoints on mount
 	$effect(() => {
@@ -113,7 +112,7 @@
 					target_uuid: selectedCheckpoint.uuid,
 					restore_chat: restoreChat,
 					restore_code: restoreCode,
-					include_response: includeResponse
+					include_response: false // Always remove the response so user can re-prompt
 				})
 			});
 
@@ -124,7 +123,8 @@
 			const data: RewindResponse = await response.json();
 
 			if (data.success) {
-				onRewindComplete(true, data.messages_removed);
+				// Pass the full message content so it can be populated in the input field
+				onRewindComplete(true, data.messages_removed, selectedCheckpoint.full_message);
 				onClose();
 			} else {
 				error = data.error || data.message || 'Rewind failed';
@@ -277,24 +277,18 @@
 								</p>
 							</div>
 						</label>
+					</div>
 
-						<label class="flex items-center gap-3 cursor-pointer {!restoreChat ? 'opacity-50' : ''}">
-							<input
-								type="checkbox"
-								bind:checked={includeResponse}
-								disabled={!restoreChat}
-								class="w-4 h-4 rounded border-border"
-							/>
-							<div>
-								<span class="text-sm font-medium">Keep Claude's response</span>
-								<p class="text-xs text-muted-foreground">Include the response to the selected message</p>
-							</div>
-						</label>
+					<!-- Info about what happens -->
+					<div class="bg-muted/50 border border-border rounded-lg p-3">
+						<p class="text-sm text-muted-foreground">
+							The selected message will be loaded into your input field so you can edit and resend it.
+						</p>
 					</div>
 
 					<!-- Warning -->
 					{#if selectedCheckpoint && restoreChat}
-						{@const messagesToRemove = checkpoints.length - selectedCheckpoint.index - (includeResponse ? 1 : 0)}
+						{@const messagesToRemove = checkpoints.length - selectedCheckpoint.index}
 						{#if messagesToRemove > 0}
 							<div class="bg-amber-500/10 border border-amber-500/20 rounded-lg p-3 text-amber-600 dark:text-amber-400">
 								<div class="flex items-start gap-2">
