@@ -1624,7 +1624,7 @@
 								on:input={() => handleInputChange(tabId)}
 								on:keydown={(e) => handleKeyDown(e, tabId)}
 								placeholder="Message Claude... (type / for commands)"
-								class="w-full bg-card border border-border rounded-lg px-4 py-2.5 text-foreground placeholder-muted-foreground resize-none focus:outline-none focus:ring-2 focus:ring-ring min-h-[40px] max-h-[200px] leading-normal shadow-s"
+								class="w-full bg-card border border-border rounded-lg px-4 py-3 sm:py-2.5 text-foreground placeholder-muted-foreground resize-none focus:outline-none focus:ring-2 focus:ring-ring min-h-[52px] sm:min-h-[40px] max-h-[200px] leading-normal shadow-s"
 								rows="1"
 								disabled={currentTab.isStreaming || !$claudeAuthenticated}
 							></textarea>
