@@ -83,18 +83,15 @@
 		return container.scrollHeight - container.scrollTop - container.clientHeight < threshold;
 	}
 
-	function scrollToBottom(tabId: string) {
+	function scrollToBottom(tabId: string, retries = 5) {
 		const container = messagesContainers[tabId];
 		if (!container) {
-			console.log('[Scroll] No container for tab:', tabId);
+			// Container not yet bound - retry after a frame
+			if (retries > 0) {
+				requestAnimationFrame(() => scrollToBottom(tabId, retries - 1));
+			}
 			return;
 		}
-		console.log('[Scroll] scrollToBottom called:', {
-			tabId,
-			scrollHeight: container.scrollHeight,
-			scrollTop: container.scrollTop,
-			clientHeight: container.clientHeight
-		});
 		container.scrollTop = container.scrollHeight;
 	}
 
@@ -122,13 +119,9 @@
 	// Scroll when switching tabs (always scroll to show current state)
 	let previousTabId: string | null = null;
 	$: if ($activeTabId && $activeTabId !== previousTabId) {
-		console.log('[Scroll] Tab switch detected:', { from: previousTabId, to: $activeTabId });
 		previousTabId = $activeTabId;
 		autoScrollEnabled[$activeTabId] = true; // Reset to enabled on tab switch
-		tick().then(() => {
-			console.log('[Scroll] After tick, calling scrollToBottom');
-			scrollToBottom($activeTabId!);
-		});
+		scrollToBottom($activeTabId); // Will retry via RAF if container not ready
 	}
 
 	let showProfileModal = false;
