@@ -47,6 +47,7 @@
 	let shouldAutoScroll: Record<string, boolean> = {};
 	let lastMessageCounts: Record<string, number> = {};
 	let lastContentLengths: Record<string, number> = {};
+	let previousActiveTabId: string | null = null;
 	let showProfileModal = false;
 	let showProjectModal = false;
 	let showNewProfileForm = false;
@@ -208,6 +209,18 @@
 				});
 			}
 		}
+	}
+
+	// Scroll to bottom when switching tabs
+	$: if ($activeTabId && $activeTabId !== previousActiveTabId) {
+		previousActiveTabId = $activeTabId;
+		// Use tick() equivalent via setTimeout to ensure DOM is updated
+		setTimeout(() => {
+			const container = messagesContainers[$activeTabId!];
+			if (container) {
+				container.scrollTop = container.scrollHeight;
+			}
+		}, 0);
 	}
 
 	function isNearBottom(container: HTMLElement, threshold = 100): boolean {
