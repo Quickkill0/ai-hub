@@ -57,6 +57,8 @@ export interface ChatTab {
 	project: string;
 	totalTokensIn: number;
 	totalTokensOut: number;
+	totalCacheCreationTokens: number;
+	totalCacheReadTokens: number;
 }
 
 interface TabsState {
@@ -192,7 +194,9 @@ function createTabsStore() {
 			profile: getPersistedProfile(),
 			project: getPersistedProject(),
 			totalTokensIn: 0,
-			totalTokensOut: 0
+			totalTokensOut: 0,
+			totalCacheCreationTokens: 0,
+			totalCacheReadTokens: 0
 		}],
 		activeTabId: initialTabId,
 		profiles: [],
@@ -564,6 +568,8 @@ function createTabsStore() {
 				// Extract token counts from metadata
 				const tokensIn = (metadata?.tokens_in as number) || 0;
 				const tokensOut = (metadata?.tokens_out as number) || 0;
+				const cacheCreationTokens = (metadata?.cache_creation_tokens as number) || 0;
+				const cacheReadTokens = (metadata?.cache_read_tokens as number) || 0;
 
 				update(s => ({
 					...s,
@@ -604,7 +610,9 @@ function createTabsStore() {
 							title,
 							// Accumulate tokens (add to existing totals)
 							totalTokensIn: tab.totalTokensIn + tokensIn,
-							totalTokensOut: tab.totalTokensOut + tokensOut
+							totalTokensOut: tab.totalTokensOut + tokensOut,
+							totalCacheCreationTokens: tab.totalCacheCreationTokens + cacheCreationTokens,
+							totalCacheReadTokens: tab.totalCacheReadTokens + cacheReadTokens
 						};
 					})
 				}));
@@ -760,7 +768,9 @@ function createTabsStore() {
 						profile: pt.profile,
 						project: pt.project,
 						totalTokensIn: 0,
-						totalTokensOut: 0
+						totalTokensOut: 0,
+						totalCacheCreationTokens: 0,
+						totalCacheReadTokens: 0
 					}));
 
 					update(s => ({
@@ -826,7 +836,9 @@ function createTabsStore() {
 				profile: state.defaultProfile,
 				project: state.defaultProject,
 				totalTokensIn: 0,
-				totalTokensOut: 0
+				totalTokensOut: 0,
+				totalCacheCreationTokens: 0,
+				totalCacheReadTokens: 0
 			};
 
 			update(s => ({
@@ -1028,7 +1040,10 @@ function createTabsStore() {
 					title,
 					error: null,
 					totalTokensIn: session.total_tokens_in || 0,
-					totalTokensOut: session.total_tokens_out || 0
+					totalTokensOut: session.total_tokens_out || 0,
+					// Cache tokens are not persisted in database, reset for session
+					totalCacheCreationTokens: 0,
+					totalCacheReadTokens: 0
 				});
 
 				// Save tabs state (debounced)
@@ -1096,7 +1111,9 @@ function createTabsStore() {
 				error: null,
 				title: 'New Chat',
 				totalTokensIn: 0,
-				totalTokensOut: 0
+				totalTokensOut: 0,
+				totalCacheCreationTokens: 0,
+				totalCacheReadTokens: 0
 			});
 			connectTab(tabId);
 			// Save tabs state (debounced)

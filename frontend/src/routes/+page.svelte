@@ -1342,21 +1342,8 @@
 				<!-- Spacer -->
 				<div class="flex-1"></div>
 
-				<!-- Right side: Connection status, token counts, rewind -->
+				<!-- Right side: Token counts, rewind, connection status -->
 				<div class="flex items-center gap-2 sm:gap-3">
-					<!-- Connection Status -->
-					{#if currentTab.wsConnected}
-						<span class="flex items-center gap-1.5 text-xs text-green-500" title="Connected">
-							<span class="w-2 h-2 bg-green-500 rounded-full"></span>
-							<span class="hidden sm:inline">Connected</span>
-						</span>
-					{:else}
-						<span class="flex items-center gap-1.5 text-xs text-yellow-500" title="Connecting...">
-							<span class="w-2 h-2 bg-yellow-500 rounded-full animate-pulse"></span>
-							<span class="hidden sm:inline">Connecting</span>
-						</span>
-					{/if}
-
 					<!-- Token counts (only show if > 0) -->
 					{#if currentTab.totalTokensIn > 0}
 						<span class="flex items-center gap-1 text-xs text-muted-foreground" title="Input tokens">
@@ -1374,6 +1361,22 @@
 							<span>{formatTokenCount(currentTab.totalTokensOut)}</span>
 						</span>
 					{/if}
+					{#if currentTab.totalCacheCreationTokens > 0}
+						<span class="flex items-center gap-1 text-xs text-muted-foreground" title="Cache creation tokens">
+							<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+							</svg>
+							<span>{formatTokenCount(currentTab.totalCacheCreationTokens)}</span>
+						</span>
+					{/if}
+					{#if currentTab.totalCacheReadTokens > 0}
+						<span class="flex items-center gap-1 text-xs text-blue-400" title="Cache read tokens (saved)">
+							<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+							</svg>
+							<span>{formatTokenCount(currentTab.totalCacheReadTokens)}</span>
+						</span>
+					{/if}
 
 					<!-- Rewind Button (only when session is active) -->
 					{#if currentTab.sessionId}
@@ -1388,6 +1391,19 @@
 							</svg>
 							<span class="hidden sm:inline">Rewind</span>
 						</button>
+					{/if}
+
+					<!-- Connection Status (always far right) -->
+					{#if currentTab.wsConnected}
+						<span class="flex items-center gap-1.5 text-xs text-green-500" title="Connected">
+							<span class="w-2 h-2 bg-green-500 rounded-full"></span>
+							<span class="hidden sm:inline">Connected</span>
+						</span>
+					{:else}
+						<span class="flex items-center gap-1.5 text-xs text-yellow-500" title="Connecting...">
+							<span class="w-2 h-2 bg-yellow-500 rounded-full animate-pulse"></span>
+							<span class="hidden sm:inline">Connecting</span>
+						</span>
 					{/if}
 				</div>
 			</div>
