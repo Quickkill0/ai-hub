@@ -82,11 +82,6 @@ export interface ChatTab {
 	totalTokensOut: number;
 	totalCacheCreationTokens: number;
 	totalCacheReadTokens: number;
-	// Baseline tokens from loaded session history - used to correctly accumulate per-turn tokens
-	// When a session is loaded from history, we store the cumulative totals as the baseline.
-	// New 'done' messages send per-turn incremental tokens, which we add to this baseline.
-	baselineTokensIn: number;
-	baselineTokensOut: number;
 }
 
 interface TabsState {
@@ -224,9 +219,7 @@ function createTabsStore() {
 			totalTokensIn: 0,
 			totalTokensOut: 0,
 			totalCacheCreationTokens: 0,
-			totalCacheReadTokens: 0,
-			baselineTokensIn: 0,
-			baselineTokensOut: 0
+			totalCacheReadTokens: 0
 		}],
 		activeTabId: initialTabId,
 		profiles: [],
@@ -627,18 +620,7 @@ function createTabsStore() {
 
 			case 'done': {
 				const metadata = data.metadata as Record<string, unknown>;
-				// Extract per-turn token counts from metadata
-				// These are INCREMENTAL tokens for this turn only, not cumulative
-				const turnTokensIn = (metadata?.tokens_in as number) || 0;
-				const turnTokensOut = (metadata?.tokens_out as number) || 0;
-				// Cache tokens represent current context window state, not incremental
-				const cacheCreationTokens = (metadata?.cache_creation_tokens as number) || 0;
-				const cacheReadTokens = (metadata?.cache_read_tokens as number) || 0;
-
-				// Check if this is a slash command response (no token data)
-				// Slash commands like /context, /compact don't use the model and have no tokens
-				const isSlashCommand = turnTokensIn === 0 && turnTokensOut === 0 &&
-					cacheCreationTokens === 0 && cacheReadTokens === 0;
+				const sessionId = data.session_id as string;
 
 				update(s => ({
 					...s,
@@ -671,42 +653,30 @@ function createTabsStore() {
 							}
 						}
 
-						// Skip token updates for slash commands - they don't use the model
-						if (isSlashCommand) {
-							return {
-								...tab,
-								messages,
-								isStreaming: false,
-								sessionId: data.session_id as string || tab.sessionId,
-								title
-								// Keep existing token values unchanged
-							};
-						}
-
-						// Calculate new totals: baseline (from history) + accumulated turn tokens
-						// The baseline contains cumulative totals from when the session was loaded
-						// Each 'done' message adds this turn's incremental tokens to the baseline
-						const newTotalTokensIn = tab.baselineTokensIn + turnTokensIn;
-						const newTotalTokensOut = tab.baselineTokensOut + turnTokensOut;
-
 						return {
 							...tab,
 							messages,
 							isStreaming: false,
-							sessionId: data.session_id as string || tab.sessionId,
-							title,
-							// Update totals: baseline + this turn's tokens
-							totalTokensIn: newTotalTokensIn,
-							totalTokensOut: newTotalTokensOut,
-							// Update baseline to include this turn's tokens for next turn
-							baselineTokensIn: newTotalTokensIn,
-							baselineTokensOut: newTotalTokensOut,
-							// Cache tokens represent current state, not incremental - use latest values
-							totalCacheCreationTokens: cacheCreationTokens,
-							totalCacheReadTokens: cacheReadTokens
+							sessionId: sessionId || tab.sessionId,
+							title
 						};
 					})
 				}));
+
+				// Load token counts from session history - single source of truth
+				// This is more reliable than tracking incremental tokens during streaming
+				if (sessionId) {
+					api.get<Session>(`/sessions/${sessionId}`).then(session => {
+						updateTab(tabId, {
+							totalTokensIn: session.total_tokens_in || 0,
+							totalTokensOut: session.total_tokens_out || 0,
+							totalCacheCreationTokens: session.cache_creation_tokens || 0,
+							totalCacheReadTokens: session.cache_read_tokens || 0
+						});
+					}).catch(err => {
+						console.error('[Tab] Failed to load session token counts:', err);
+					});
+				}
 
 				// Refresh sessions list
 				loadSessionsInternal();
@@ -1128,9 +1098,7 @@ function createTabsStore() {
 						totalTokensIn: 0,
 						totalTokensOut: 0,
 						totalCacheCreationTokens: 0,
-						totalCacheReadTokens: 0,
-						baselineTokensIn: 0,
-						baselineTokensOut: 0
+						totalCacheReadTokens: 0
 					}));
 
 					update(s => ({
@@ -1198,9 +1166,7 @@ function createTabsStore() {
 				totalTokensIn: 0,
 				totalTokensOut: 0,
 				totalCacheCreationTokens: 0,
-				totalCacheReadTokens: 0,
-				baselineTokensIn: 0,
-				baselineTokensOut: 0
+				totalCacheReadTokens: 0
 			};
 
 			update(s => ({
@@ -1434,22 +1400,14 @@ function createTabsStore() {
 					title = firstUserMsg.content.substring(0, 30) + (firstUserMsg.content.length > 30 ? '...' : '');
 				}
 
-				// Get cumulative token totals from session history
-				const historyTokensIn = session.total_tokens_in || 0;
-				const historyTokensOut = session.total_tokens_out || 0;
-
+				// Load token totals from session history - single source of truth
 				updateTab(tabId, {
 					sessionId: session.id,
 					messages,
 					title,
 					error: null,
-					// Set both totals AND baseline to the cumulative values from history
-					// When new 'done' messages arrive, they'll add per-turn increments to the baseline
-					totalTokensIn: historyTokensIn,
-					totalTokensOut: historyTokensOut,
-					baselineTokensIn: historyTokensIn,
-					baselineTokensOut: historyTokensOut,
-					// Cache tokens from JSONL file (if available) - these represent current context state
+					totalTokensIn: session.total_tokens_in || 0,
+					totalTokensOut: session.total_tokens_out || 0,
 					totalCacheCreationTokens: session.cache_creation_tokens || 0,
 					totalCacheReadTokens: session.cache_read_tokens || 0
 				});
@@ -1521,10 +1479,7 @@ function createTabsStore() {
 				totalTokensIn: 0,
 				totalTokensOut: 0,
 				totalCacheCreationTokens: 0,
-				totalCacheReadTokens: 0,
-				// Reset baseline for new chat - tokens will accumulate fresh
-				baselineTokensIn: 0,
-				baselineTokensOut: 0
+				totalCacheReadTokens: 0
 			});
 			connectTab(tabId);
 			// Save tabs state (debounced)
