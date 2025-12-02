@@ -222,12 +222,20 @@
 		}
 	}
 
-	// Scroll to bottom helper
+	// Scroll to bottom helper - uses RAF to ensure DOM is fully laid out
 	function scrollToBottom(tabId: string) {
 		const container = messagesContainers[tabId];
-		if (container) {
-			container.scrollTop = container.scrollHeight;
-		}
+		if (!container) return;
+
+		// Scroll immediately
+		container.scrollTop = container.scrollHeight;
+
+		// Also scroll after next frame to catch layout updates
+		requestAnimationFrame(() => {
+			if (container) {
+				container.scrollTop = container.scrollHeight;
+			}
+		});
 	}
 
 	// ALWAYS scroll to bottom after every DOM update
@@ -236,6 +244,12 @@
 			scrollToBottom($activeTabId);
 		}
 	});
+
+	// Also scroll when active tab changes (needs tick for DOM to update)
+	$: if ($activeTabId) {
+		// Use setTimeout to ensure we're after the DOM update
+		setTimeout(() => scrollToBottom($activeTabId!), 0);
+	}
 
 	async function handleSubmit(tabId: string) {
 		const prompt = tabInputs[tabId] || '';
