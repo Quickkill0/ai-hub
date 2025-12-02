@@ -1352,6 +1352,14 @@ async def stream_to_websocket(
                     sdk_session_id = message.data["session_id"]
                     state.sdk_session_id = sdk_session_id
                     logger.info(f"[WS] Captured SDK session ID: {sdk_session_id}")
+                else:
+                    # Forward other system messages (like /context output) to frontend
+                    logger.info(f"[WS] SystemMessage subtype={message.subtype}, data keys={list(message.data.keys()) if message.data else []}")
+                    yield {
+                        "type": "system",
+                        "subtype": message.subtype,
+                        "data": message.data
+                    }
 
             elif isinstance(message, AssistantMessage):
                 # Check interrupt before processing each message block

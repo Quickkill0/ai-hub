@@ -21,7 +21,7 @@ export interface ApiUser {
 	last_used_at?: string;
 }
 
-export type MessageType = 'text' | 'tool_use' | 'tool_result';
+export type MessageType = 'text' | 'tool_use' | 'tool_result' | 'system';
 
 export interface ChatMessage {
 	id: string;
@@ -33,6 +33,8 @@ export interface ChatMessage {
 	toolInput?: Record<string, unknown>;
 	metadata?: Record<string, unknown>;
 	streaming?: boolean;
+	systemSubtype?: string; // For system messages (e.g., 'context' for /context command)
+	systemData?: Record<string, unknown>; // Raw data from system message
 }
 
 export interface Project {
@@ -688,6 +690,44 @@ function createTabsStore() {
 				if (ws?.readyState === WebSocket.OPEN) {
 					ws.send(JSON.stringify({ type: 'pong' }));
 				}
+				break;
+			}
+
+			case 'system': {
+				// Handle system messages from SDK (e.g., /context command output)
+				const subtype = data.subtype as string;
+				const systemData = data.data as Record<string, unknown>;
+
+				console.log('[WS] System message received:', subtype, systemData);
+
+				update(s => ({
+					...s,
+					tabs: s.tabs.map(tab => {
+						if (tab.id !== tabId) return tab;
+
+						// First, mark any streaming text message as complete
+						let messages = tab.messages.map(m =>
+							m.streaming ? { ...m, streaming: false } : m
+						);
+						// Remove empty streaming text messages
+						messages = messages.filter(
+							m => !(m.type === 'text' && m.role === 'assistant' && !m.content)
+						);
+
+						// Add the system message
+						messages.push({
+							id: `system-${Date.now()}`,
+							role: 'system' as const,
+							content: JSON.stringify(systemData, null, 2),
+							type: 'system' as const,
+							systemSubtype: subtype,
+							systemData: systemData,
+							streaming: false
+						});
+
+						return { ...tab, messages };
+					})
+				}));
 				break;
 			}
 		}
