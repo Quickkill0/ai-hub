@@ -817,10 +817,13 @@
 				</svg>
 			</button>
 			<div class="w-6 h-px bg-border my-2"></div>
-			<button on:click={() => toggleSidebarSection('sessions')} class="w-10 h-10 rounded-lg flex items-center justify-center transition-colors {activeSidebarSection === 'sessions' ? 'bg-primary text-primary-foreground' : 'hover:bg-accent text-muted-foreground hover:text-foreground'}" title="Sessions">
+			<button on:click={() => toggleSidebarSection('sessions')} class="relative w-10 h-10 rounded-lg flex items-center justify-center transition-colors {activeSidebarSection === 'sessions' ? 'bg-primary text-primary-foreground' : 'hover:bg-accent text-muted-foreground hover:text-foreground'}" title="Sessions">
 				<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
 				</svg>
+				{#if $allTabs.length > 1}
+					<span class="absolute -top-1 -right-1 w-4 h-4 bg-primary text-primary-foreground text-[10px] font-bold rounded-full flex items-center justify-center">{$allTabs.length}</span>
+				{/if}
 			</button>
 			<button on:click={() => toggleSidebarSection('projects')} class="w-10 h-10 rounded-lg flex items-center justify-center transition-colors {activeSidebarSection === 'projects' ? 'bg-primary text-primary-foreground' : 'hover:bg-accent text-muted-foreground hover:text-foreground'}" title="Projects">
 				<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -880,6 +883,48 @@
 					{/if}
 					{#if sidebarTab === 'my-chats'}
 					<div class="flex-1 overflow-y-auto px-3 pb-3 pt-2">
+						<!-- Open Tabs Section -->
+						{#if $allTabs.length > 0}
+							<div class="mb-4">
+								<div class="flex items-center justify-between px-2 mb-2">
+									<div class="text-xs text-muted-foreground uppercase tracking-wider">Open ({$allTabs.length})</div>
+								</div>
+								<div class="space-y-1">
+									{#each $allTabs as tab}
+										<div
+											class="group flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-colors {tab.id === $activeTabId ? 'bg-primary/20 border border-primary/30' : 'hover:bg-accent'}"
+											on:click={() => { tabs.setActiveTab(tab.id); closeSidebar(); }}
+											on:keypress={(e) => e.key === 'Enter' && (tabs.setActiveTab(tab.id), closeSidebar())}
+											role="button"
+											tabindex="0"
+										>
+											{#if tab.isStreaming}
+												<span class="w-2 h-2 bg-primary rounded-full animate-pulse flex-shrink-0"></span>
+											{:else if tab.id === $activeTabId}
+												<span class="w-2 h-2 bg-primary rounded-full flex-shrink-0"></span>
+											{:else}
+												<span class="w-2 h-2 bg-muted-foreground/30 rounded-full flex-shrink-0"></span>
+											{/if}
+											<div class="flex-1 min-w-0">
+												<p class="text-sm text-foreground truncate">{tab.title}</p>
+											</div>
+											{#if $allTabs.length > 1}
+												<button
+													on:click|stopPropagation={(e) => handleCloseTab(e, tab.id)}
+													class="opacity-0 group-hover:opacity-100 p-1 text-muted-foreground hover:text-destructive transition-opacity"
+													title="Close tab"
+												>
+													<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+														<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+													</svg>
+												</button>
+											{/if}
+										</div>
+									{/each}
+								</div>
+							</div>
+						{/if}
+
 						<!-- Header with History label and selection toggle -->
 						<div class="flex items-center justify-between px-2 mb-2">
 							<div class="text-xs text-muted-foreground uppercase tracking-wider">History</div>
@@ -927,8 +972,8 @@
 							{#each $sessions as session}
 								<div
 									class="group flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-accent cursor-pointer transition-colors {$selectionMode && $selectedSessionIds.has(session.id) ? 'bg-accent/50' : ''}"
-									on:click={() => $selectionMode ? tabs.toggleSessionSelection(session.id, false) : openSessionInNewTab(session.id)}
-									on:keypress={(e) => e.key === 'Enter' && ($selectionMode ? tabs.toggleSessionSelection(session.id, false) : openSessionInNewTab(session.id))}
+									on:click={() => $selectionMode ? tabs.toggleSessionSelection(session.id, false) : openSessionInCurrentTab(session.id)}
+									on:keypress={(e) => e.key === 'Enter' && ($selectionMode ? tabs.toggleSessionSelection(session.id, false) : openSessionInCurrentTab(session.id))}
 									role="button"
 									tabindex="0"
 								>
@@ -948,6 +993,15 @@
 										</p>
 									</div>
 									{#if !$selectionMode}
+										<button
+											on:click|stopPropagation={() => openSessionInNewTab(session.id)}
+											class="opacity-0 group-hover:opacity-100 p-1 text-muted-foreground hover:text-primary transition-opacity"
+											title="Open in new tab"
+										>
+											<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+												<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+											</svg>
+										</button>
 										<button
 											on:click|stopPropagation={(e) => deleteSession(e, session.id)}
 											class="opacity-0 group-hover:opacity-100 p-1 text-muted-foreground hover:text-destructive transition-opacity"
@@ -1131,13 +1185,53 @@
 				</button>
 			</div>
 			<div class="flex-1 overflow-y-auto px-3 pb-3">
+				<!-- Open Tabs Section (Mobile) -->
+				{#if $allTabs.length > 0}
+					<div class="mb-4">
+						<div class="text-xs text-muted-foreground uppercase tracking-wider px-2 mb-2">Open ({$allTabs.length})</div>
+						<div class="space-y-1">
+							{#each $allTabs as tab}
+								<div
+									class="group flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-colors {tab.id === $activeTabId ? 'bg-primary/20 border border-primary/30' : 'hover:bg-accent'}"
+									on:click={() => { tabs.setActiveTab(tab.id); sidebarOpen = false; }}
+									on:keypress={(e) => e.key === 'Enter' && (tabs.setActiveTab(tab.id), sidebarOpen = false)}
+									role="button"
+									tabindex="0"
+								>
+									{#if tab.isStreaming}
+										<span class="w-2 h-2 bg-primary rounded-full animate-pulse flex-shrink-0"></span>
+									{:else if tab.id === $activeTabId}
+										<span class="w-2 h-2 bg-primary rounded-full flex-shrink-0"></span>
+									{:else}
+										<span class="w-2 h-2 bg-muted-foreground/30 rounded-full flex-shrink-0"></span>
+									{/if}
+									<div class="flex-1 min-w-0">
+										<p class="text-sm text-foreground truncate">{tab.title}</p>
+									</div>
+									{#if $allTabs.length > 1}
+										<button
+											on:click|stopPropagation={(e) => handleCloseTab(e, tab.id)}
+											class="p-1 text-muted-foreground hover:text-destructive transition-colors"
+											title="Close tab"
+										>
+											<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+												<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+											</svg>
+										</button>
+									{/if}
+								</div>
+							{/each}
+						</div>
+					</div>
+				{/if}
+
 				<div class="text-xs text-muted-foreground uppercase tracking-wider px-2 mb-2">History</div>
 				<div class="space-y-1">
 					{#each $sessions as session}
 						<div
 							class="group flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-accent cursor-pointer transition-colors"
-							on:click={() => { openSessionInNewTab(session.id); sidebarOpen = false; }}
-							on:keypress={(e) => e.key === 'Enter' && openSessionInNewTab(session.id)}
+							on:click={() => { openSessionInCurrentTab(session.id); sidebarOpen = false; }}
+							on:keypress={(e) => e.key === 'Enter' && openSessionInCurrentTab(session.id)}
 							role="button"
 							tabindex="0"
 						>
@@ -1145,6 +1239,15 @@
 								<p class="text-sm text-foreground truncate">{truncateTitle(session.title)}</p>
 								<p class="text-xs text-muted-foreground">{formatDate(session.updated_at)}</p>
 							</div>
+							<button
+								on:click|stopPropagation={() => { openSessionInNewTab(session.id); sidebarOpen = false; }}
+								class="p-1 text-muted-foreground hover:text-primary transition-colors"
+								title="Open in new tab"
+							>
+								<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+								</svg>
+							</button>
 						</div>
 					{/each}
 					{#if $sessions.length === 0}
@@ -1180,11 +1283,14 @@
 				</svg>
 				<span class="text-xs mt-0.5">New</span>
 			</button>
-			<button on:click={() => sidebarOpen = true} class="flex flex-col items-center justify-center w-16 h-full text-muted-foreground hover:text-foreground transition-colors">
+			<button on:click={() => sidebarOpen = true} class="relative flex flex-col items-center justify-center w-16 h-full text-muted-foreground hover:text-foreground transition-colors">
 				<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
 				</svg>
 				<span class="text-xs mt-0.5">Chats</span>
+				{#if $allTabs.length > 1}
+					<span class="absolute top-1 right-2 w-4 h-4 bg-primary text-primary-foreground text-[10px] font-bold rounded-full flex items-center justify-center">{$allTabs.length}</span>
+				{/if}
 			</button>
 			<button on:click={() => showProjectModal = true} class="flex flex-col items-center justify-center w-16 h-full text-muted-foreground hover:text-foreground transition-colors">
 				<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
