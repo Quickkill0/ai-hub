@@ -11,168 +11,118 @@
 1. [Overview](#overview)
 2. [Authentication](#authentication)
 3. [Quick Start](#quick-start)
-4. [HTTP Endpoints](#http-endpoints)
-   - [System](#system)
-   - [Authentication](#authentication-endpoints)
+4. [Endpoints](#endpoints)
+   - [Health & Status](#health--status)
+   - [Query (One-Shot)](#query-one-shot)
+   - [Conversations (Multi-Turn)](#conversations-multi-turn)
+   - [Sessions](#sessions)
    - [Profiles](#profiles)
    - [Projects](#projects)
-   - [Sessions](#sessions)
-   - [Query & Chat](#query--chat)
-   - [API Users](#api-users-admin-only)
-   - [Commands & Rewind](#commands--rewind)
-5. [WebSocket Endpoints](#websocket-endpoints)
-6. [Request/Response Models](#requestresponse-models)
-7. [Error Handling](#error-handling)
-8. [Rate Limiting](#rate-limiting)
-9. [Examples](#examples)
+5. [WebSocket API](#websocket-api)
+6. [Streaming (SSE)](#streaming-sse)
+7. [Data Models](#data-models)
+8. [Error Handling](#error-handling)
+9. [Code Examples](#code-examples)
 
 ---
 
 ## Overview
 
-AI Hub provides a REST API and WebSocket interface for interacting with Claude AI. The API supports:
+AI Hub provides a REST API and WebSocket interface for interacting with Claude AI.
 
+**Key Features:**
 - **One-shot queries** - Single question/answer interactions
 - **Multi-turn conversations** - Persistent chat sessions with context
-- **Streaming responses** - Real-time SSE and WebSocket streaming
-- **Profile management** - Configure AI behavior with different profiles
-- **Project workspaces** - Organize conversations by project
-- **Cross-device sync** - Real-time synchronization across devices
+- **Streaming responses** - Real-time Server-Sent Events (SSE) and WebSocket streaming
+- **Session management** - View and manage your conversation history
 
 ---
 
 ## Authentication
 
-AI Hub supports two authentication methods:
+All API requests require authentication using an API key. Your API key will be provided by your administrator.
 
-### 1. Admin Session (Cookie-based)
+**Format:** API keys start with `aih_`
 
-For web UI users. Login creates an HttpOnly session cookie.
+**Usage:** Include your API key in the `Authorization` header:
 
-```bash
-# Login
-curl -X POST http://localhost:8000/api/v1/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"username": "admin", "password": "your-password"}' \
-  -c cookies.txt
-
-# Use the cookie for subsequent requests
-curl http://localhost:8000/api/v1/sessions -b cookies.txt
+```
+Authorization: Bearer aih_your_api_key_here
 ```
 
-### 2. API Key (Bearer Token)
-
-For programmatic access. API keys are created by admins and start with `aih_`.
-
+**Example:**
 ```bash
-# Use API key in Authorization header
 curl http://localhost:8000/api/v1/sessions \
   -H "Authorization: Bearer aih_your_api_key_here"
 ```
 
-**API Key Features:**
-- Can be restricted to specific projects and profiles
-- Can be deactivated without deletion
-- Usage is tracked per API user
-- Keys are hashed in the database (shown only once on creation)
+> **Note:** Your API key may be restricted to specific projects and/or profiles. If you receive a 403 error, contact your administrator.
 
 ---
 
 ## Quick Start
 
-### 1. Check API Status
+### 1. Verify Your Connection
 
 ```bash
 curl http://localhost:8000/api/v1/health
 ```
 
-Response:
-```json
-{
-  "status": "ok",
-  "service": "ai-hub",
-  "version": "4.0.0",
-  "authenticated": false,
-  "setup_required": false,
-  "claude_authenticated": true
-}
-```
-
-### 2. Simple Query (One-shot)
+### 2. Send Your First Query
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/query \
   -H "Authorization: Bearer aih_your_api_key" \
   -H "Content-Type: application/json" \
-  -d '{
-    "prompt": "What is the capital of France?",
-    "profile": "claude-code"
-  }'
+  -d '{"prompt": "Hello! What can you help me with?"}'
 ```
 
-### 3. Streaming Query
+### 3. Have a Conversation
 
 ```bash
-curl -X POST http://localhost:8000/api/v1/query/stream \
+# Start a conversation
+curl -X POST http://localhost:8000/api/v1/conversation \
   -H "Authorization: Bearer aih_your_api_key" \
   -H "Content-Type: application/json" \
-  -d '{
-    "prompt": "Explain quantum computing",
-    "profile": "claude-code"
-  }'
-```
+  -d '{"prompt": "Help me write a Python script"}'
 
-### 4. Multi-turn Conversation
-
-```bash
-# First message (creates session)
+# Continue the conversation (use the session_id from the response)
 curl -X POST http://localhost:8000/api/v1/conversation \
   -H "Authorization: Bearer aih_your_api_key" \
   -H "Content-Type: application/json" \
   -d '{
-    "prompt": "Help me write a Python function to sort a list",
-    "profile": "claude-code"
-  }'
-
-# Continue conversation (use returned session_id)
-curl -X POST http://localhost:8000/api/v1/conversation \
-  -H "Authorization: Bearer aih_your_api_key" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "prompt": "Now make it handle edge cases",
-    "session_id": "returned-session-uuid"
+    "prompt": "Add error handling to it",
+    "session_id": "uuid-from-previous-response"
   }'
 ```
 
 ---
 
-## HTTP Endpoints
+## Endpoints
 
-### System
+### Health & Status
 
-#### Health Check
+#### Check API Health
 ```
-GET /health
 GET /api/v1/health
 ```
-No authentication required.
+
+No authentication required. Use this to verify the API is running.
 
 **Response:**
 ```json
 {
   "status": "ok",
   "service": "ai-hub",
-  "version": "4.0.0",
-  "authenticated": false,
-  "setup_required": false,
-  "claude_authenticated": true
+  "version": "4.0.0"
 }
 ```
 
-#### Get Version
+#### Get Version Info
 ```
 GET /api/v1/version
 ```
+
 **Response:**
 ```json
 {
@@ -181,109 +131,229 @@ GET /api/v1/version
 }
 ```
 
-#### Get Usage Statistics
+---
+
+### Query (One-Shot)
+
+Use one-shot queries for single question/answer interactions without maintaining conversation history.
+
+#### Send a Query
 ```
-GET /api/v1/stats
+POST /api/v1/query
 ```
-Requires authentication.
+
+**Request Body:**
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `prompt` | string | Yes | Your message to Claude |
+| `project` | string | No | Project ID (if your API key allows multiple projects) |
+
+**Example Request:**
+```json
+{
+  "prompt": "What is the capital of France?"
+}
+```
+
+**Example Response:**
+```json
+{
+  "response": "The capital of France is Paris.",
+  "session_id": "550e8400-e29b-41d4-a716-446655440000",
+  "metadata": {
+    "model": "claude-sonnet-4-20250514",
+    "duration_ms": 1234,
+    "total_cost_usd": 0.003,
+    "tokens_in": 15,
+    "tokens_out": 12,
+    "num_turns": 1
+  }
+}
+```
+
+#### Send a Streaming Query
+```
+POST /api/v1/query/stream
+```
+
+Same request body as `/query`, but returns Server-Sent Events. See [Streaming (SSE)](#streaming-sse) for details.
+
+---
+
+### Conversations (Multi-Turn)
+
+Use conversations when you need to maintain context across multiple messages.
+
+#### Send a Message
+```
+POST /api/v1/conversation
+```
+
+**Request Body:**
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `prompt` | string | Yes | Your message to Claude |
+| `session_id` | string | No | Session ID to continue (omit to start new) |
+| `project` | string | No | Project ID (required for new sessions if your key allows multiple) |
+
+**Start a New Conversation:**
+```json
+{
+  "prompt": "Help me build a REST API in Python"
+}
+```
+
+**Continue an Existing Conversation:**
+```json
+{
+  "prompt": "Now add authentication",
+  "session_id": "550e8400-e29b-41d4-a716-446655440000"
+}
+```
 
 **Response:**
 ```json
 {
-  "total_sessions": 42,
-  "total_queries": 156,
-  "total_cost_usd": 12.34,
-  "total_tokens_in": 50000,
-  "total_tokens_out": 100000
+  "response": "I'll help you build a REST API...",
+  "session_id": "550e8400-e29b-41d4-a716-446655440000",
+  "metadata": {
+    "model": "claude-sonnet-4-20250514",
+    "duration_ms": 5432,
+    "total_cost_usd": 0.015,
+    "tokens_in": 250,
+    "tokens_out": 800,
+    "num_turns": 1
+  }
+}
+```
+
+#### Send a Streaming Message
+```
+POST /api/v1/conversation/stream
+```
+
+Same request body as `/conversation`, but returns Server-Sent Events.
+
+#### Interrupt an Active Session
+```
+POST /api/v1/session/{session_id}/interrupt
+```
+
+Stop a currently streaming response.
+
+**Response:**
+```json
+{
+  "status": "interrupted",
+  "session_id": "550e8400-e29b-41d4-a716-446655440000"
 }
 ```
 
 ---
 
-### Authentication Endpoints
+### Sessions
 
-#### Initial Setup
-```
-POST /api/v1/auth/setup
-```
-First-time admin account creation. Only works when no admin exists.
+Sessions store your conversation history.
 
-**Request:**
+#### List Your Sessions
+```
+GET /api/v1/sessions
+```
+
+**Query Parameters:**
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `project_id` | string | Filter by project |
+| `status` | string | Filter by status: `active`, `completed`, `archived` |
+| `limit` | integer | Max results (default: 50) |
+| `offset` | integer | Pagination offset |
+
+**Response:**
+```json
+[
+  {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "title": "Python REST API",
+    "status": "active",
+    "total_cost_usd": 0.05,
+    "turn_count": 5,
+    "created_at": "2024-01-15T10:30:00Z",
+    "updated_at": "2024-01-15T11:45:00Z"
+  }
+]
+```
+
+#### Get a Session with Messages
+```
+GET /api/v1/sessions/{session_id}
+```
+
+**Response:**
 ```json
 {
-  "username": "admin",
-  "password": "secure-password"
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "title": "Python REST API",
+  "status": "active",
+  "total_cost_usd": 0.05,
+  "total_tokens_in": 1500,
+  "total_tokens_out": 3000,
+  "turn_count": 5,
+  "created_at": "2024-01-15T10:30:00Z",
+  "updated_at": "2024-01-15T11:45:00Z",
+  "messages": [
+    {
+      "id": 1,
+      "role": "user",
+      "content": "Help me build a REST API in Python",
+      "created_at": "2024-01-15T10:30:00Z"
+    },
+    {
+      "id": 2,
+      "role": "assistant",
+      "content": "I'll help you build a REST API...",
+      "created_at": "2024-01-15T10:30:05Z"
+    }
+  ]
 }
 ```
 
-#### Admin Login
+#### Update a Session
 ```
-POST /api/v1/auth/login
+PATCH /api/v1/sessions/{session_id}
 ```
-**Request:**
+
+**Request Body:**
 ```json
 {
-  "username": "admin",
-  "password": "your-password"
+  "title": "My Python API Project"
+}
+```
+
+#### Delete a Session
+```
+DELETE /api/v1/sessions/{session_id}
+```
+
+Returns `204 No Content` on success.
+
+#### Delete Multiple Sessions
+```
+POST /api/v1/sessions/batch-delete
+```
+
+**Request Body:**
+```json
+{
+  "session_ids": ["uuid1", "uuid2", "uuid3"]
 }
 ```
 
 **Response:**
 ```json
 {
-  "status": "success",
-  "message": "Login successful",
-  "is_admin": true
-}
-```
-
-#### API Key Web Login
-```
-POST /api/v1/auth/login/api-key
-```
-Create a web session using an API key.
-
-**Request:**
-```json
-{
-  "api_key": "aih_your_api_key"
-}
-```
-
-#### Logout
-```
-POST /api/v1/auth/logout
-```
-
-#### Check Auth Status
-```
-GET /api/v1/auth/status
-```
-**Response:**
-```json
-{
-  "authenticated": true,
-  "is_admin": true,
-  "setup_required": false,
-  "claude_authenticated": true,
-  "github_authenticated": false,
-  "username": "admin",
-  "api_user": null
-}
-```
-
-#### Claude Authentication Status
-```
-GET /api/v1/auth/claude/status
-```
-**Response:**
-```json
-{
-  "authenticated": true,
-  "auth_method": "OAuth",
-  "username": "user@example.com",
-  "email": "user@example.com",
-  "model_ids": ["claude-sonnet-4-20250514", "claude-opus-4-20250514"]
+  "deleted_count": 3,
+  "total_requested": 3,
+  "errors": []
 }
 ```
 
@@ -291,9 +361,9 @@ GET /api/v1/auth/claude/status
 
 ### Profiles
 
-Profiles define AI behavior, permissions, and tool access.
+Profiles define how Claude behaves. Your API key may be restricted to a specific profile.
 
-#### List Profiles
+#### List Available Profiles
 ```
 GET /api/v1/profiles
 ```
@@ -304,95 +374,41 @@ GET /api/v1/profiles
   {
     "id": "claude-code",
     "name": "Claude Code",
-    "description": "Full-featured coding assistant",
-    "config": {
-      "model": "sonnet",
-      "permission_mode": "default",
-      "allowed_tools": null,
-      "disallowed_tools": null
-    },
-    "is_builtin": true,
-    "created_at": "2024-01-01T00:00:00Z",
-    "updated_at": "2024-01-01T00:00:00Z"
+    "description": "Full-featured coding assistant"
   }
 ]
 ```
 
-#### Get Profile
+#### Get Profile Details
 ```
 GET /api/v1/profiles/{profile_id}
-```
-
-#### Create Profile (Admin)
-```
-POST /api/v1/profiles
-```
-**Request:**
-```json
-{
-  "id": "safe-assistant",
-  "name": "Safe Assistant",
-  "description": "Read-only assistant",
-  "config": {
-    "model": "haiku",
-    "permission_mode": "default",
-    "allowed_tools": ["Read", "Glob", "Grep"],
-    "disallowed_tools": ["Write", "Edit", "Bash"]
-  }
-}
-```
-
-#### Update Profile (Admin)
-```
-PUT /api/v1/profiles/{profile_id}
-```
-
-#### Delete Profile (Admin)
-```
-DELETE /api/v1/profiles/{profile_id}
 ```
 
 ---
 
 ### Projects
 
-Projects organize work into separate workspaces with their own file systems.
+Projects organize work into separate workspaces. Your API key may be restricted to a specific project.
 
-#### List Projects
+#### List Available Projects
 ```
 GET /api/v1/projects
 ```
 
-#### Get Project
+**Response:**
+```json
+[
+  {
+    "id": "my-webapp",
+    "name": "My Web App",
+    "description": "React frontend project"
+  }
+]
+```
+
+#### Get Project Details
 ```
 GET /api/v1/projects/{project_id}
-```
-
-#### Create Project (Admin)
-```
-POST /api/v1/projects
-```
-**Request:**
-```json
-{
-  "id": "my-webapp",
-  "name": "My Web App",
-  "description": "React frontend project",
-  "settings": {
-    "default_profile_id": "claude-code",
-    "custom_instructions": "Use TypeScript and follow React best practices"
-  }
-}
-```
-
-#### Update Project (Admin)
-```
-PUT /api/v1/projects/{project_id}
-```
-
-#### Delete Project (Admin)
-```
-DELETE /api/v1/projects/{project_id}
 ```
 
 #### List Project Files
@@ -400,513 +416,182 @@ DELETE /api/v1/projects/{project_id}
 GET /api/v1/projects/{project_id}/files?path=/src
 ```
 
-#### Upload File
+**Response:**
+```json
+{
+  "path": "/src",
+  "files": [
+    {"name": "index.ts", "type": "file", "size": 1234},
+    {"name": "components", "type": "directory"}
+  ]
+}
+```
+
+#### Upload a File
 ```
 POST /api/v1/projects/{project_id}/upload
 Content-Type: multipart/form-data
 ```
 
----
-
-### Sessions
-
-Sessions store conversation history and metadata.
-
-#### List Sessions
-```
-GET /api/v1/sessions
-```
-
-**Query Parameters:**
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `project_id` | string | Filter by project |
-| `profile_id` | string | Filter by profile |
-| `status` | string | Filter by status (active, completed, archived) |
-| `api_user_id` | string | Filter by API user |
-| `admin_only` | boolean | Only show admin sessions |
-| `api_users_only` | boolean | Only show API user sessions |
-| `limit` | integer | Max results (default: 50) |
-| `offset` | integer | Pagination offset |
-
-#### Get Session with Messages
-```
-GET /api/v1/sessions/{session_id}
-```
+**Form Fields:**
+- `file`: The file to upload
+- `path` (optional): Target directory path
 
 **Response:**
 ```json
 {
-  "id": "uuid",
-  "profile_id": "claude-code",
-  "project_id": "my-project",
-  "title": "Help with Python",
-  "status": "active",
-  "total_cost_usd": 0.05,
-  "total_tokens_in": 1000,
-  "total_tokens_out": 2000,
-  "turn_count": 3,
-  "created_at": "2024-01-01T12:00:00Z",
-  "messages": [
-    {
-      "id": 1,
-      "role": "user",
-      "content": "Help me write a function",
-      "created_at": "2024-01-01T12:00:00Z"
-    },
-    {
-      "id": 2,
-      "role": "assistant",
-      "content": "Here's a function...",
-      "created_at": "2024-01-01T12:00:01Z"
-    }
-  ]
-}
-```
-
-#### Update Session
-```
-PATCH /api/v1/sessions/{session_id}
-```
-**Request:**
-```json
-{
-  "title": "New Title",
-  "status": "archived"
-}
-```
-
-#### Delete Session
-```
-DELETE /api/v1/sessions/{session_id}
-```
-
-#### Batch Delete Sessions
-```
-POST /api/v1/sessions/batch-delete
-```
-**Request:**
-```json
-{
-  "session_ids": ["uuid1", "uuid2", "uuid3"]
-}
-```
-
-#### Archive Session
-```
-POST /api/v1/sessions/{session_id}/archive
-```
-
-#### Get Session State (for sync)
-```
-GET /api/v1/sessions/{session_id}/state
-```
-
----
-
-### Query & Chat
-
-#### One-Shot Query
-```
-POST /api/v1/query
-```
-Single question/answer with no conversation history.
-
-**Request:**
-```json
-{
-  "prompt": "What is 2 + 2?",
-  "profile": "claude-code",
-  "project": "optional-project-id",
-  "overrides": {
-    "model": "haiku",
-    "max_turns": 5,
-    "system_prompt_append": "Be concise."
-  }
-}
-```
-
-**Response:**
-```json
-{
-  "response": "2 + 2 equals 4.",
-  "session_id": "uuid",
-  "metadata": {
-    "model": "claude-3-haiku",
-    "duration_ms": 1234,
-    "total_cost_usd": 0.001,
-    "tokens_in": 50,
-    "tokens_out": 10,
-    "num_turns": 1
-  }
-}
-```
-
-#### Streaming One-Shot Query
-```
-POST /api/v1/query/stream
-```
-Returns Server-Sent Events (SSE).
-
-**Event Types:**
-```
-event: message
-data: {"type": "text", "content": "Hello"}
-
-event: message
-data: {"type": "tool_use", "name": "Read", "input": {...}, "id": "tool_123"}
-
-event: message
-data: {"type": "tool_result", "name": "Read", "output": "..."}
-
-event: message
-data: {"type": "done", "session_id": "uuid", "metadata": {...}}
-```
-
-#### Multi-Turn Conversation
-```
-POST /api/v1/conversation
-```
-Continues an existing session or creates a new one.
-
-**Request:**
-```json
-{
-  "prompt": "Continue from where we left off",
-  "session_id": "existing-session-uuid",
-  "profile": "claude-code",
-  "project": "my-project",
-  "device_id": "optional-device-id"
-}
-```
-
-#### Streaming Conversation
-```
-POST /api/v1/conversation/stream
-```
-
-#### Start Background Conversation
-```
-POST /api/v1/conversation/start
-```
-Starts a conversation without waiting for completion. Use WebSocket or polling to get results.
-
-#### Interrupt Session
-```
-POST /api/v1/session/{session_id}/interrupt
-```
-Stop an active streaming session.
-
-#### List Active Streams
-```
-GET /api/v1/streaming/active
-```
-
----
-
-### API Users (Admin Only)
-
-Manage programmatic API access.
-
-#### List API Users
-```
-GET /api/v1/api-users
-```
-
-#### Get API User
-```
-GET /api/v1/api-users/{user_id}
-```
-
-#### Create API User
-```
-POST /api/v1/api-users
-```
-**Request:**
-```json
-{
-  "name": "CI Bot",
-  "description": "For CI/CD pipeline",
-  "project_id": "my-project",
-  "profile_id": "claude-code"
-}
-```
-
-**Response:**
-```json
-{
-  "id": "uuid",
-  "name": "CI Bot",
-  "description": "For CI/CD pipeline",
-  "project_id": "my-project",
-  "profile_id": "claude-code",
-  "is_active": true,
-  "api_key": "aih_xxxxx...",
-  "created_at": "2024-01-01T00:00:00Z"
-}
-```
-
-> **Important:** The `api_key` is only shown once on creation. Store it securely!
-
-#### Update API User
-```
-PUT /api/v1/api-users/{user_id}
-```
-
-#### Regenerate API Key
-```
-POST /api/v1/api-users/{user_id}/regenerate-key
-```
-Returns a new API key. The old key is immediately invalidated.
-
-#### Delete API User
-```
-DELETE /api/v1/api-users/{user_id}
-```
-
----
-
-### Commands & Rewind
-
-#### List Available Commands
-```
-GET /api/v1/commands/?project_id=optional
-```
-
-#### Get Command Details
-```
-GET /api/v1/commands/{command_name}?project_id=optional
-```
-
-#### Get Rewind Checkpoints
-```
-GET /api/v1/commands/rewind/checkpoints/{session_id}
-```
-
-**Response:**
-```json
-{
-  "checkpoints": [
-    {
-      "uuid": "msg-uuid-1",
-      "index": 0,
-      "message_preview": "Help me write a function...",
-      "full_message": "Help me write a function that...",
-      "timestamp": "2024-01-01T12:00:00Z",
-      "git_available": true,
-      "git_ref": "abc123"
-    }
-  ],
-  "session_id": "session-uuid",
-  "current_index": 2
-}
-```
-
-#### Execute Rewind
-```
-POST /api/v1/commands/rewind/execute/{session_id}
-```
-**Request:**
-```json
-{
-  "target_uuid": "msg-uuid-1",
-  "restore_chat": true,
-  "restore_code": true,
-  "include_response": false
+  "filename": "script.py",
+  "path": "/uploads",
+  "full_path": "/uploads/script.py",
+  "size": 2048
 }
 ```
 
 ---
 
-## WebSocket Endpoints
+## WebSocket API
 
-### Primary Chat WebSocket
+For real-time streaming, connect via WebSocket.
 
+### Connect
 ```
-WS /api/v1/ws/chat?token=your_api_key
+WS /api/v1/ws/chat?token=aih_your_api_key
 ```
 
-The recommended way to interact with AI Hub for real-time streaming.
+### Send Messages
 
-**Authentication:**
-- Query parameter: `?token=aih_your_api_key`
-- Or use session cookie
-
-**Client → Server Messages:**
-
+**Send a Query:**
 ```json
-// Send a query
 {
   "type": "query",
   "prompt": "Your message here",
   "session_id": null,
-  "profile": "claude-code",
   "project": "optional-project-id"
 }
+```
 
-// Stop streaming
+**Continue a Conversation:**
+```json
+{
+  "type": "query",
+  "prompt": "Follow-up message",
+  "session_id": "existing-session-uuid"
+}
+```
+
+**Stop Streaming:**
+```json
 {
   "type": "stop",
   "session_id": "uuid"
 }
+```
 
-// Load session history
+**Load Session History:**
+```json
 {
   "type": "load_session",
   "session_id": "uuid"
 }
+```
 
-// Respond to ping
+**Respond to Ping:**
+```json
 {
   "type": "pong"
 }
 ```
 
-**Server → Client Messages:**
+### Receive Messages
 
-```json
-// Query started
-{"type": "start", "session_id": "uuid"}
-
-// Text chunk
-{"type": "chunk", "content": "Hello, I'll help..."}
-
-// Tool usage
-{"type": "tool_use", "name": "Read", "input": {...}, "id": "tool_123"}
-
-// Tool result
-{"type": "tool_result", "name": "Read", "output": "file contents..."}
-
-// Query complete
-{"type": "done", "session_id": "uuid", "metadata": {...}}
-
-// Session history
-{"type": "history", "session_id": "uuid", "session": {...}, "messages": [...]}
-
-// Query interrupted
-{"type": "stopped", "session_id": "uuid"}
-
-// Error
-{"type": "error", "message": "Error description"}
-
-// Keep-alive
-{"type": "ping"}
-```
-
-### Session Sync WebSocket
-
-```
-WS /api/v1/ws/sessions/{session_id}?device_id=xxx&token=xxx
-```
-
-For cross-device synchronization of a specific session.
-
-### Global Sync WebSocket
-
-```
-WS /api/v1/ws/global?device_id=xxx&token=xxx
-```
-
-For global notifications across all sessions.
+| Type | Description | Example |
+|------|-------------|---------|
+| `start` | Query started | `{"type": "start", "session_id": "uuid"}` |
+| `chunk` | Text chunk | `{"type": "chunk", "content": "Hello..."}` |
+| `tool_use` | Claude using a tool | `{"type": "tool_use", "name": "Read", "input": {...}}` |
+| `tool_result` | Tool result | `{"type": "tool_result", "name": "Read", "output": "..."}` |
+| `done` | Query complete | `{"type": "done", "session_id": "uuid", "metadata": {...}}` |
+| `stopped` | Query interrupted | `{"type": "stopped", "session_id": "uuid"}` |
+| `error` | Error occurred | `{"type": "error", "message": "..."}` |
+| `ping` | Keep-alive | `{"type": "ping"}` |
+| `history` | Session loaded | `{"type": "history", "session_id": "uuid", "messages": [...]}` |
 
 ---
 
-## Request/Response Models
+## Streaming (SSE)
 
-### QueryRequest
+The `/query/stream` and `/conversation/stream` endpoints return Server-Sent Events.
 
-```typescript
-interface QueryRequest {
-  prompt: string;           // Required: The user's message
-  profile?: string;         // Profile ID (default: "claude-code")
-  project?: string;         // Project ID
-  overrides?: {
-    model?: string;         // "sonnet" | "opus" | "haiku"
-    system_prompt_append?: string;
-    max_turns?: number;
-  };
-}
+### Event Format
+
+```
+event: message
+data: {"type": "text", "content": "Hello, I'll help you..."}
+
+event: message
+data: {"type": "tool_use", "name": "Read", "input": {"file_path": "/src/main.py"}, "id": "tool_123"}
+
+event: message
+data: {"type": "tool_result", "name": "Read", "output": "# Main application..."}
+
+event: message
+data: {"type": "done", "session_id": "uuid", "metadata": {"total_cost_usd": 0.01}}
 ```
 
-### ConversationRequest
+### Event Types
 
-```typescript
-interface ConversationRequest extends QueryRequest {
-  session_id?: string;      // Existing session ID (null for new)
-  device_id?: string;       // For cross-device sync
-}
-```
+| Type | Description |
+|------|-------------|
+| `text` | Text content chunk |
+| `tool_use` | Claude is using a tool (includes `name`, `input`, `id`) |
+| `tool_result` | Result from a tool (includes `name`, `output`) |
+| `done` | Stream complete (includes `session_id`, `metadata`) |
+| `error` | Error occurred (includes `message`) |
+
+---
+
+## Data Models
 
 ### Session
 
 ```typescript
 interface Session {
   id: string;
-  profile_id: string;
-  project_id?: string;
-  sdk_session_id?: string;
-  title?: string;
+  title: string | null;
   status: "active" | "completed" | "archived";
   total_cost_usd: number;
   total_tokens_in: number;
   total_tokens_out: number;
   turn_count: number;
-  created_at: string;
-  updated_at: string;
+  created_at: string;  // ISO 8601
+  updated_at: string;  // ISO 8601
 }
 ```
 
-### SessionMessage
+### Message
 
 ```typescript
-interface SessionMessage {
+interface Message {
   id: number | string;
-  role: "user" | "assistant" | "system" | "tool";
+  role: "user" | "assistant";
   content: string;
   type?: "text" | "tool_use" | "tool_result";
-  tool_name?: string;
-  tool_input?: object;
-  metadata?: object;
-  created_at?: string;
+  tool_name?: string;     // For tool_use/tool_result
+  tool_input?: object;    // For tool_use
+  created_at: string;     // ISO 8601
 }
 ```
 
-### Profile
+### Query Metadata
 
 ```typescript
-interface Profile {
-  id: string;
-  name: string;
-  description?: string;
-  config: {
-    model?: "sonnet" | "opus" | "haiku";
-    permission_mode?: "default" | "acceptEdits" | "plan" | "bypassPermissions";
-    max_turns?: number;
-    allowed_tools?: string[];
-    disallowed_tools?: string[];
-    system_prompt?: object;
-    cwd?: string;
-    env?: Record<string, string>;
-  };
-  is_builtin: boolean;
-  created_at: string;
-  updated_at: string;
-}
-```
-
-### ApiUser
-
-```typescript
-interface ApiUser {
-  id: string;
-  name: string;
-  description?: string;
-  project_id?: string;      // Restricts to this project
-  profile_id?: string;      // Restricts to this profile
-  is_active: boolean;
-  created_at: string;
-  updated_at: string;
-  last_used_at?: string;
+interface QueryMetadata {
+  model: string;
+  duration_ms: number;
+  total_cost_usd: number;
+  tokens_in: number;
+  tokens_out: number;
+  num_turns: number;
 }
 ```
 
@@ -914,7 +599,7 @@ interface ApiUser {
 
 ## Error Handling
 
-All errors follow a consistent format:
+### Error Response Format
 
 ```json
 {
@@ -930,37 +615,40 @@ All errors follow a consistent format:
 | 201 | Created |
 | 204 | No Content (successful deletion) |
 | 400 | Bad Request - Invalid input |
-| 401 | Unauthorized - Missing or invalid authentication |
-| 403 | Forbidden - Insufficient permissions |
+| 401 | Unauthorized - Missing or invalid API key |
+| 403 | Forbidden - API key doesn't have access to this resource |
 | 404 | Not Found - Resource doesn't exist |
-| 409 | Conflict - Resource already exists |
-| 423 | Locked - Account locked due to failed attempts |
-| 429 | Too Many Requests - Rate limited |
 | 500 | Internal Server Error |
-| 503 | Service Unavailable - Claude not authenticated |
+| 503 | Service Unavailable - Claude service not ready |
 
----
+### Common Errors
 
-## Rate Limiting
-
-### Login Rate Limiting
-
-- **Max failed attempts:** 5 per 15-minute window
-- **Lockout duration:** 30 minutes
-- **Scope:** Both IP address and username
-
-When locked out, you'll receive:
+**Invalid API Key:**
 ```json
 {
-  "detail": "Account locked due to too many failed attempts. Try again in X minutes."
+  "detail": "Invalid or missing API key"
+}
+```
+
+**Access Denied:**
+```json
+{
+  "detail": "API key does not have access to this project"
+}
+```
+
+**Session Not Found:**
+```json
+{
+  "detail": "Session not found"
 }
 ```
 
 ---
 
-## Examples
+## Code Examples
 
-### Python Example
+### Python
 
 ```python
 import requests
@@ -977,10 +665,7 @@ headers = {
 response = requests.post(
     f"{API_URL}/query",
     headers=headers,
-    json={
-        "prompt": "Write a Python function to calculate factorial",
-        "profile": "claude-code"
-    }
+    json={"prompt": "Explain recursion in simple terms"}
 )
 print(response.json()["response"])
 
@@ -991,10 +676,7 @@ session_id = None
 response = requests.post(
     f"{API_URL}/conversation",
     headers=headers,
-    json={
-        "prompt": "Help me build a REST API",
-        "profile": "claude-code"
-    }
+    json={"prompt": "Help me write a function to calculate fibonacci numbers"}
 )
 result = response.json()
 session_id = result["session_id"]
@@ -1005,14 +687,46 @@ response = requests.post(
     f"{API_URL}/conversation",
     headers=headers,
     json={
-        "prompt": "Now add authentication",
+        "prompt": "Now optimize it with memoization",
         "session_id": session_id
     }
 )
 print(response.json()["response"])
 ```
 
-### JavaScript/TypeScript Example
+### Python with Streaming
+
+```python
+import requests
+
+API_URL = "http://localhost:8000/api/v1"
+API_KEY = "aih_your_api_key"
+
+headers = {
+    "Authorization": f"Bearer {API_KEY}",
+    "Content-Type": "application/json"
+}
+
+response = requests.post(
+    f"{API_URL}/query/stream",
+    headers=headers,
+    json={"prompt": "Write a haiku about programming"},
+    stream=True
+)
+
+for line in response.iter_lines():
+    if line:
+        line = line.decode('utf-8')
+        if line.startswith('data: '):
+            import json
+            data = json.loads(line[6:])
+            if data.get('type') == 'text':
+                print(data['content'], end='', flush=True)
+            elif data.get('type') == 'done':
+                print("\n--- Done ---")
+```
+
+### JavaScript/TypeScript
 
 ```typescript
 const API_URL = "http://localhost:8000/api/v1";
@@ -1026,70 +740,80 @@ async function query(prompt: string) {
       "Authorization": `Bearer ${API_KEY}`,
       "Content-Type": "application/json"
     },
-    body: JSON.stringify({
-      prompt,
-      profile: "claude-code"
-    })
+    body: JSON.stringify({ prompt })
   });
   return response.json();
 }
 
-// Streaming with EventSource
-function streamQuery(prompt: string, onChunk: (text: string) => void) {
-  const response = await fetch(`${API_URL}/query/stream`, {
+// Multi-turn conversation
+async function chat(prompt: string, sessionId?: string) {
+  const response = await fetch(`${API_URL}/conversation`, {
     method: "POST",
     headers: {
       "Authorization": `Bearer ${API_KEY}`,
       "Content-Type": "application/json"
     },
-    body: JSON.stringify({ prompt, profile: "claude-code" })
+    body: JSON.stringify({
+      prompt,
+      session_id: sessionId
+    })
   });
-
-  const reader = response.body?.getReader();
-  const decoder = new TextDecoder();
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-
-    const text = decoder.decode(value);
-    const lines = text.split("\n");
-
-    for (const line of lines) {
-      if (line.startsWith("data: ")) {
-        const data = JSON.parse(line.slice(6));
-        if (data.type === "text") {
-          onChunk(data.content);
-        }
-      }
-    }
-  }
+  return response.json();
 }
 
-// WebSocket chat
-function connectChat(onMessage: (msg: any) => void) {
-  const ws = new WebSocket(`ws://localhost:8000/api/v1/ws/chat?token=${API_KEY}`);
+// Usage
+const result = await query("What is TypeScript?");
+console.log(result.response);
 
-  ws.onmessage = (event) => {
-    const data = JSON.parse(event.data);
-    onMessage(data);
-  };
-
-  ws.onopen = () => {
-    // Send a query
-    ws.send(JSON.stringify({
-      type: "query",
-      prompt: "Hello!",
-      session_id: null,
-      profile: "claude-code"
-    }));
-  };
-
-  return ws;
-}
+// Conversation
+const msg1 = await chat("Help me write a React component");
+const msg2 = await chat("Add props validation", msg1.session_id);
 ```
 
-### cURL Examples
+### JavaScript with WebSocket
+
+```typescript
+const API_KEY = "aih_your_api_key";
+
+const ws = new WebSocket(`ws://localhost:8000/api/v1/ws/chat?token=${API_KEY}`);
+
+ws.onopen = () => {
+  console.log("Connected");
+
+  // Send a query
+  ws.send(JSON.stringify({
+    type: "query",
+    prompt: "Hello, Claude!",
+    session_id: null
+  }));
+};
+
+ws.onmessage = (event) => {
+  const data = JSON.parse(event.data);
+
+  switch (data.type) {
+    case "chunk":
+      process.stdout.write(data.content);
+      break;
+    case "done":
+      console.log("\n--- Complete ---");
+      console.log("Session ID:", data.session_id);
+      break;
+    case "error":
+      console.error("Error:", data.message);
+      break;
+    case "ping":
+      ws.send(JSON.stringify({ type: "pong" }));
+      break;
+  }
+};
+
+ws.onerror = (error) => {
+  console.error("WebSocket error:", error);
+};
+```
+
+### cURL
 
 ```bash
 # Check health
@@ -1099,55 +823,49 @@ curl http://localhost:8000/api/v1/health
 curl -X POST http://localhost:8000/api/v1/query \
   -H "Authorization: Bearer aih_your_api_key" \
   -H "Content-Type: application/json" \
-  -d '{"prompt": "Hello!", "profile": "claude-code"}'
+  -d '{"prompt": "What is 2 + 2?"}'
 
-# List sessions
+# Start a conversation
+curl -X POST http://localhost:8000/api/v1/conversation \
+  -H "Authorization: Bearer aih_your_api_key" \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "Help me write a bash script"}'
+
+# Continue conversation (replace SESSION_ID)
+curl -X POST http://localhost:8000/api/v1/conversation \
+  -H "Authorization: Bearer aih_your_api_key" \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "Add error handling", "session_id": "SESSION_ID"}'
+
+# List your sessions
 curl http://localhost:8000/api/v1/sessions \
   -H "Authorization: Bearer aih_your_api_key"
 
-# Get session with messages
+# Get a specific session
 curl http://localhost:8000/api/v1/sessions/SESSION_ID \
   -H "Authorization: Bearer aih_your_api_key"
-
-# Create API user (admin only)
-curl -X POST http://localhost:8000/api/v1/api-users \
-  -H "Content-Type: application/json" \
-  -b cookies.txt \
-  -d '{"name": "My Bot", "description": "Automated assistant"}'
 
 # Streaming query (shows SSE events)
 curl -N -X POST http://localhost:8000/api/v1/query/stream \
   -H "Authorization: Bearer aih_your_api_key" \
   -H "Content-Type: application/json" \
-  -d '{"prompt": "Count to 10", "profile": "claude-code"}'
+  -d '{"prompt": "Count to 5"}'
+
+# Delete a session
+curl -X DELETE http://localhost:8000/api/v1/sessions/SESSION_ID \
+  -H "Authorization: Bearer aih_your_api_key"
 ```
 
 ---
 
-## Additional Notes
+## Tips
 
-### Security Best Practices
-
-1. **Store API keys securely** - Never commit them to version control
-2. **Use HTTPS in production** - All traffic should be encrypted
-3. **Rotate keys regularly** - Use the regenerate endpoint periodically
-4. **Restrict API user scope** - Assign specific projects/profiles when possible
-5. **Monitor usage** - Check `/api/v1/stats` and session logs regularly
-
-### WebSocket Best Practices
-
-1. **Handle reconnection** - WebSocket connections may drop; implement reconnection logic
-2. **Respond to pings** - Send `{"type": "pong"}` when you receive a ping
-3. **Use device_id** - For cross-device sync, provide a consistent device identifier
-4. **Handle all message types** - Your client should gracefully handle unknown message types
-
-### Performance Tips
-
-1. **Use streaming** - For long responses, streaming provides better UX
-2. **Reuse sessions** - Multi-turn conversations maintain context efficiently
-3. **Choose appropriate models** - Use `haiku` for simple tasks, `sonnet` for complex ones
-4. **Batch operations** - Use batch-delete for multiple sessions
+1. **Use streaming for long responses** - Provides better user experience
+2. **Reuse sessions for related tasks** - Maintains context and reduces token usage
+3. **Check your session list** - Find previous conversations to continue
+4. **Handle errors gracefully** - Always check response status codes
+5. **Implement WebSocket reconnection** - Connections may drop; reconnect automatically
 
 ---
 
-*Generated for AI Hub v4.0.0*
+*AI Hub API v4.0.0*
