@@ -1366,24 +1366,41 @@
 
 				<!-- Right side: Token counts, rewind, connection status -->
 				<div class="flex items-center gap-2 sm:gap-3">
-					<!-- Token counts dropdown (only show if any tokens > 0) -->
+					<!-- Context usage dropdown (only show if any tokens > 0) -->
 					{#if currentTab.totalTokensIn > 0 || currentTab.totalTokensOut > 0}
+						{@const contextUsed = currentTab.totalTokensIn + currentTab.totalTokensOut + currentTab.totalCacheCreationTokens + currentTab.totalCacheReadTokens}
+						{@const contextMax = 200000}
+						{@const contextPercent = Math.min((contextUsed / contextMax) * 100, 100)}
 						<div class="relative group">
 							<button
-								class="flex items-center gap-1 px-2 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-accent rounded-md transition-colors"
-								title="Token usage"
+								class="flex items-center gap-1.5 px-2 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-accent rounded-md transition-colors"
+								title="Context usage: {formatTokenCount(contextUsed)} / {formatTokenCount(contextMax)}"
 							>
-								<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+								<!-- Circular progress indicator -->
+								<svg class="w-4 h-4 -rotate-90" viewBox="0 0 20 20">
+									<circle cx="10" cy="10" r="8" fill="none" stroke="currentColor" stroke-width="2" opacity="0.2" />
+									<circle
+										cx="10" cy="10" r="8" fill="none"
+										stroke={contextPercent > 80 ? '#ef4444' : contextPercent > 60 ? '#f59e0b' : '#22c55e'}
+										stroke-width="2"
+										stroke-dasharray={2 * Math.PI * 8}
+										stroke-dashoffset={2 * Math.PI * 8 * (1 - contextPercent / 100)}
+										stroke-linecap="round"
+									/>
 								</svg>
-								<span>{formatTokenCount(currentTab.totalTokensIn + currentTab.totalTokensOut)}</span>
+								<span>{Math.round(contextPercent)}%</span>
 								<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
 								</svg>
 							</button>
 							<!-- Token dropdown -->
-							<div class="absolute right-0 top-full mt-1 w-48 bg-card border border-border rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
+							<div class="absolute right-0 top-full mt-1 w-52 bg-card border border-border rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
 								<div class="py-2 px-3 space-y-2">
+									<!-- Context header -->
+									<div class="flex items-center justify-between text-xs pb-1 border-b border-border">
+										<span class="text-muted-foreground">Context</span>
+										<span class="text-foreground font-medium">{formatTokenCount(contextUsed)} / {formatTokenCount(contextMax)}</span>
+									</div>
 									<div class="flex items-center justify-between text-xs">
 										<span class="flex items-center gap-1.5 text-muted-foreground">
 											<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1408,7 +1425,7 @@
 												<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 													<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
 												</svg>
-												Cache Write
+												Cache Creation
 											</span>
 											<span class="text-foreground font-medium">{formatTokenCount(currentTab.totalCacheCreationTokens)}</span>
 										</div>
