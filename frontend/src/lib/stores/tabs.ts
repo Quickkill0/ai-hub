@@ -21,7 +21,18 @@ export interface ApiUser {
 	last_used_at?: string;
 }
 
-export type MessageType = 'text' | 'tool_use' | 'tool_result' | 'system';
+export type MessageType = 'text' | 'tool_use' | 'tool_result' | 'system' | 'subagent';
+
+// Subagent child message - represents a single tool call or text from a subagent
+export interface SubagentChildMessage {
+	id: string;
+	type: 'text' | 'tool_use' | 'tool_result';
+	content: string;
+	toolName?: string;
+	toolId?: string;
+	toolInput?: Record<string, unknown>;
+	timestamp?: string;
+}
 
 export interface ChatMessage {
 	id: string;
@@ -35,6 +46,12 @@ export interface ChatMessage {
 	streaming?: boolean;
 	systemSubtype?: string; // For system messages (e.g., 'context' for /context command)
 	systemData?: Record<string, unknown>; // Raw data from system message
+	// Subagent-specific fields
+	agentId?: string; // The subagent's unique ID (e.g., '00ed8f4d')
+	agentType?: string; // The subagent type (e.g., 'Explore', 'Plan')
+	agentDescription?: string; // Task description from the Task tool
+	agentStatus?: 'pending' | 'running' | 'completed' | 'error'; // Current status
+	agentChildren?: SubagentChildMessage[]; // Nested messages from subagent execution
 }
 
 export interface Project {
@@ -386,7 +403,8 @@ function createTabsStore() {
 						msgType = m.role as MessageType;
 					}
 
-					return {
+					// Build the chat message with all fields
+					const chatMessage: ChatMessage = {
 						id: String(m.id || `msg-${i}`),
 						role: (m.role === 'tool_use' || m.role === 'tool_result' ? 'assistant' : m.role) as 'user' | 'assistant',
 						content: m.content as string,
@@ -397,6 +415,17 @@ function createTabsStore() {
 						metadata: m.metadata as Record<string, unknown>,
 						streaming: false
 					};
+
+					// Add subagent-specific fields if present
+					if (msgType === 'subagent') {
+						chatMessage.agentId = m.agentId as string | undefined;
+						chatMessage.agentType = m.agentType as string | undefined;
+						chatMessage.agentDescription = m.agentDescription as string | undefined;
+						chatMessage.agentStatus = m.agentStatus as 'pending' | 'running' | 'completed' | 'error' | undefined;
+						chatMessage.agentChildren = m.agentChildren as SubagentChildMessage[] | undefined;
+					}
+
+					return chatMessage;
 				}) || [];
 
 				updateTab(tabId, {
@@ -730,6 +759,208 @@ function createTabsStore() {
 				}));
 				break;
 			}
+
+			case 'subagent_start': {
+				// Subagent task started - create a new subagent message group
+				const agentId = data.agent_id as string;
+				const agentType = data.agent_type as string;
+				const description = data.description as string;
+				const toolId = data.tool_id as string; // The tool_use ID that launched this subagent
+
+				console.log('[WS] Subagent started:', agentId, agentType, description);
+
+				update(s => ({
+					...s,
+					tabs: s.tabs.map(tab => {
+						if (tab.id !== tabId) return tab;
+
+						let messages = [...tab.messages];
+
+						// Find and mark the Task tool_use as not streaming
+						const toolUseIdx = messages.findIndex(m => m.type === 'tool_use' && m.toolId === toolId);
+						if (toolUseIdx !== -1) {
+							messages[toolUseIdx] = { ...messages[toolUseIdx], streaming: false };
+						}
+
+						// Mark any streaming text message as complete
+						const streamingIdx = messages.findLastIndex(
+							m => m.type === 'text' && m.role === 'assistant' && m.streaming
+						);
+						if (streamingIdx !== -1) {
+							if (messages[streamingIdx].content) {
+								messages[streamingIdx] = { ...messages[streamingIdx], streaming: false };
+							} else {
+								messages = messages.filter((_, i) => i !== streamingIdx);
+							}
+						}
+
+						// Add subagent message group
+						messages.push({
+							id: `subagent-${agentId}`,
+							role: 'assistant',
+							content: '',
+							type: 'subagent',
+							toolId: toolId,
+							agentId: agentId,
+							agentType: agentType,
+							agentDescription: description,
+							agentStatus: 'running',
+							agentChildren: [],
+							streaming: true
+						});
+
+						return { ...tab, messages };
+					})
+				}));
+				break;
+			}
+
+			case 'subagent_tool_use': {
+				// Tool use within a subagent - add to the subagent's children
+				const agentId = data.agent_id as string;
+				const toolName = data.name as string;
+				const toolId = data.id as string;
+				const toolInput = data.input as Record<string, unknown>;
+
+				update(s => ({
+					...s,
+					tabs: s.tabs.map(tab => {
+						if (tab.id !== tabId) return tab;
+
+						const messages = tab.messages.map(m => {
+							if (m.type === 'subagent' && m.agentId === agentId) {
+								const children = [...(m.agentChildren || [])];
+								children.push({
+									id: `${agentId}-tool-${toolId}`,
+									type: 'tool_use',
+									content: '',
+									toolName: toolName,
+									toolId: toolId,
+									toolInput: toolInput
+								});
+								return { ...m, agentChildren: children };
+							}
+							return m;
+						});
+
+						return { ...tab, messages };
+					})
+				}));
+				break;
+			}
+
+			case 'subagent_tool_result': {
+				// Tool result within a subagent - add to the subagent's children
+				const agentId = data.agent_id as string;
+				const toolUseId = data.tool_use_id as string;
+				const output = data.output as string;
+				const toolName = data.name as string;
+
+				update(s => ({
+					...s,
+					tabs: s.tabs.map(tab => {
+						if (tab.id !== tabId) return tab;
+
+						const messages = tab.messages.map(m => {
+							if (m.type === 'subagent' && m.agentId === agentId) {
+								const children = [...(m.agentChildren || [])];
+								children.push({
+									id: `${agentId}-result-${toolUseId}`,
+									type: 'tool_result',
+									content: output,
+									toolName: toolName,
+									toolId: toolUseId
+								});
+								return { ...m, agentChildren: children };
+							}
+							return m;
+						});
+
+						return { ...tab, messages };
+					})
+				}));
+				break;
+			}
+
+			case 'subagent_chunk': {
+				// Text chunk from subagent - add to children or update last text child
+				const agentId = data.agent_id as string;
+				const content = data.content as string;
+
+				update(s => ({
+					...s,
+					tabs: s.tabs.map(tab => {
+						if (tab.id !== tabId) return tab;
+
+						const messages = tab.messages.map(m => {
+							if (m.type === 'subagent' && m.agentId === agentId) {
+								const children = [...(m.agentChildren || [])];
+								const lastChild = children[children.length - 1];
+
+								if (lastChild && lastChild.type === 'text') {
+									// Append to existing text child
+									children[children.length - 1] = {
+										...lastChild,
+										content: lastChild.content + content
+									};
+								} else {
+									// Create new text child
+									children.push({
+										id: `${agentId}-text-${Date.now()}`,
+										type: 'text',
+										content: content
+									});
+								}
+								return { ...m, agentChildren: children };
+							}
+							return m;
+						});
+
+						return { ...tab, messages };
+					})
+				}));
+				break;
+			}
+
+			case 'subagent_done': {
+				// Subagent completed - update status and store final result
+				const agentId = data.agent_id as string;
+				const result = data.result as string | undefined;
+				const isError = data.is_error as boolean | undefined;
+
+				console.log('[WS] Subagent done:', agentId, isError ? 'error' : 'success');
+
+				update(s => ({
+					...s,
+					tabs: s.tabs.map(tab => {
+						if (tab.id !== tabId) return tab;
+
+						const messages = tab.messages.map(m => {
+							if (m.type === 'subagent' && m.agentId === agentId) {
+								return {
+									...m,
+									content: result || '',
+									agentStatus: isError ? 'error' as const : 'completed' as const,
+									streaming: false
+								};
+							}
+							return m;
+						});
+
+						// Add new streaming text placeholder for main agent to continue
+						messages.push({
+							id: `text-${Date.now()}-cont`,
+							role: 'assistant' as const,
+							content: '',
+							type: 'text' as const,
+							streaming: true
+						});
+
+						return { ...tab, messages };
+					})
+				}));
+				break;
+			}
 		}
 	}
 
@@ -1055,7 +1286,8 @@ function createTabsStore() {
 						msgType = m.role as MessageType;
 					}
 
-					return {
+					// Build the chat message with all fields
+					const chatMessage: ChatMessage = {
 						id: String(m.id || `msg-${i}`),
 						role: (m.role === 'tool_use' || m.role === 'tool_result' ? 'assistant' : m.role) as 'user' | 'assistant',
 						content: m.content as string,
@@ -1066,6 +1298,17 @@ function createTabsStore() {
 						metadata: m.metadata as Record<string, unknown>,
 						streaming: false
 					};
+
+					// Add subagent-specific fields if present
+					if (msgType === 'subagent') {
+						chatMessage.agentId = m.agentId as string | undefined;
+						chatMessage.agentType = m.agentType as string | undefined;
+						chatMessage.agentDescription = m.agentDescription as string | undefined;
+						chatMessage.agentStatus = m.agentStatus as 'pending' | 'running' | 'completed' | 'error' | undefined;
+						chatMessage.agentChildren = m.agentChildren as SubagentChildMessage[] | undefined;
+					}
+
+					return chatMessage;
 				});
 
 				// Generate title from first user message

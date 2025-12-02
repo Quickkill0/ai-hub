@@ -166,20 +166,6 @@ You ARE allowed to read user-provided files, analyze web content, or access othe
     return ClaudeAgentOptions(
         model=model,
         system_prompt=final_system_prompt,
-        # Block all write/modify/execute tools for security
-        disallowed_tools=[
-            "Write",        # Block file creation
-            "Edit",         # Block file modification
-            "Bash",         # Block command execution
-            "Task",         # Block subagent spawning
-            "NotebookEdit", # Block notebook edits
-            "TodoWrite",    # Block todo modifications
-            "BashOutput",   # Block background shell access
-            "KillShell",    # Block shell control
-            "Skill",        # Block skill execution
-            "SlashCommand", # Block slash commands
-            "ExitPlanMode"  # Block plan mode
-        ],
         permission_mode="bypassPermissions"  # No interactive prompts for API
     )
 

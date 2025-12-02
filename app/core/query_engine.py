@@ -1333,6 +1333,7 @@ async def stream_to_websocket(
     # Execute query
     response_text = []
     tool_messages = []  # Collect tool use/result messages for storage
+    task_tool_uses = {}  # Track Task (subagent) tool uses by tool_id
     metadata = {}
     sdk_session_id = resume_id
     interrupted = False
@@ -1374,38 +1375,75 @@ async def stream_to_websocket(
                         yield {"type": "chunk", "content": block.text}
 
                     elif isinstance(block, ToolUseBlock):
+                        tool_id = getattr(block, 'id', None)
+                        tool_input = block.input or {}
+
                         # Collect tool use for storage
                         tool_messages.append({
                             "type": "tool_use",
                             "name": block.name,
-                            "tool_id": getattr(block, 'id', None),
-                            "input": block.input
+                            "tool_id": tool_id,
+                            "input": tool_input
                         })
 
-                        yield {
-                            "type": "tool_use",
-                            "name": block.name,
-                            "id": getattr(block, 'id', None),
-                            "input": block.input
-                        }
+                        # Check if this is a Task tool (subagent) invocation
+                        if block.name == "Task":
+                            # Track this Task tool use
+                            task_tool_uses[tool_id] = {
+                                "agent_type": tool_input.get("subagent_type", "unknown"),
+                                "description": tool_input.get("description", ""),
+                                "prompt": tool_input.get("prompt", "")
+                            }
+
+                            # Yield subagent_start event instead of regular tool_use
+                            yield {
+                                "type": "subagent_start",
+                                "tool_id": tool_id,
+                                "agent_type": tool_input.get("subagent_type", "unknown"),
+                                "description": tool_input.get("description", ""),
+                                "agent_id": ""  # SDK doesn't provide agent_id until result
+                            }
+                        else:
+                            yield {
+                                "type": "tool_use",
+                                "name": block.name,
+                                "id": tool_id,
+                                "input": tool_input
+                            }
 
                     elif isinstance(block, ToolResultBlock):
                         output = str(block.content)[:2000]
+                        tool_use_id = getattr(block, 'tool_use_id', None)
+                        tool_name = getattr(block, 'name', 'unknown')
 
                         # Collect tool result for storage
                         tool_messages.append({
                             "type": "tool_result",
-                            "name": getattr(block, 'name', 'unknown'),
-                            "tool_id": getattr(block, 'tool_use_id', None),
+                            "name": tool_name,
+                            "tool_id": tool_use_id,
                             "output": output
                         })
 
-                        yield {
-                            "type": "tool_result",
-                            "name": getattr(block, 'name', 'unknown'),
-                            "tool_use_id": getattr(block, 'tool_use_id', None),
-                            "output": output
-                        }
+                        # Check if this is a result for a Task tool (subagent)
+                        if tool_use_id in task_tool_uses:
+                            task_info = task_tool_uses[tool_use_id]
+                            yield {
+                                "type": "subagent_done",
+                                "tool_id": tool_use_id,
+                                "agent_id": "",  # Not available from SDK
+                                "agent_type": task_info.get("agent_type", "unknown"),
+                                "result": output,
+                                "is_error": getattr(block, 'is_error', False)
+                            }
+                            # Clean up tracking
+                            del task_tool_uses[tool_use_id]
+                        else:
+                            yield {
+                                "type": "tool_result",
+                                "name": tool_name,
+                                "tool_use_id": tool_use_id,
+                                "output": output
+                            }
 
                 metadata["model"] = message.model
 
@@ -1415,22 +1453,37 @@ async def stream_to_websocket(
                 for block in message.content:
                     if isinstance(block, ToolResultBlock):
                         output = str(block.content)[:2000] if block.content else ""
-                        logger.debug(f"[WS] UserMessage ToolResultBlock - tool_use_id: {block.tool_use_id}, content length: {len(str(block.content) if block.content else '')}, is_error: {block.is_error}")
+                        tool_use_id = block.tool_use_id
+                        logger.debug(f"[WS] UserMessage ToolResultBlock - tool_use_id: {tool_use_id}, content length: {len(str(block.content) if block.content else '')}, is_error: {block.is_error}")
 
                         # Collect tool result for storage
                         tool_messages.append({
                             "type": "tool_result",
                             "name": "unknown",  # UserMessage ToolResultBlock doesn't have name
-                            "tool_id": block.tool_use_id,
+                            "tool_id": tool_use_id,
                             "output": output
                         })
 
-                        yield {
-                            "type": "tool_result",
-                            "name": "unknown",
-                            "tool_use_id": block.tool_use_id,
-                            "output": output
-                        }
+                        # Check if this is a result for a Task tool (subagent)
+                        if tool_use_id in task_tool_uses:
+                            task_info = task_tool_uses[tool_use_id]
+                            yield {
+                                "type": "subagent_done",
+                                "tool_id": tool_use_id,
+                                "agent_id": "",  # Not available from SDK
+                                "agent_type": task_info.get("agent_type", "unknown"),
+                                "result": output,
+                                "is_error": block.is_error
+                            }
+                            # Clean up tracking
+                            del task_tool_uses[tool_use_id]
+                        else:
+                            yield {
+                                "type": "tool_result",
+                                "name": "unknown",
+                                "tool_use_id": tool_use_id,
+                                "output": output
+                            }
 
             elif isinstance(message, ResultMessage):
                 metadata["duration_ms"] = message.duration_ms
