@@ -759,6 +759,30 @@ function createTabsStore() {
 		},
 
 		/**
+		 * Find a tab that has a specific session loaded
+		 */
+		findTabBySessionId(sessionId: string): string | null {
+			const state = get({ subscribe });
+			const tab = state.tabs.find(t => t.sessionId === sessionId);
+			return tab?.id ?? null;
+		},
+
+		/**
+		 * Open a session - switches to existing tab if already open, otherwise creates new tab
+		 */
+		openSession(sessionId: string) {
+			const existingTabId = this.findTabBySessionId(sessionId);
+			if (existingTabId) {
+				// Session already open - switch to that tab
+				this.setActiveTab(existingTabId);
+				return existingTabId;
+			} else {
+				// Create new tab with this session
+				return this.createTab(sessionId);
+			}
+		},
+
+		/**
 		 * Send message in a specific tab
 		 */
 		sendMessage(tabId: string, prompt: string) {

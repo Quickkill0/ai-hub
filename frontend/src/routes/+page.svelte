@@ -526,22 +526,14 @@
 		return title.length > maxLength ? title.substring(0, maxLength) + '...' : title;
 	}
 
-	// Open session in new tab
-	function openSessionInNewTab(sessionId: string) {
+	// Open session - creates new tab or switches to existing tab with that session
+	function openSession(sessionId: string) {
 		// Prevent clicking while sessions are loading (race condition with bfcache)
 		if ($sessionsLoading) {
 			console.log('[Page] Ignoring session click while loading');
 			return;
 		}
-		tabs.createTab(sessionId);
-		sidebarOpen = false;
-	}
-
-	// Open session in current tab
-	async function openSessionInCurrentTab(sessionId: string) {
-		if ($activeTabId) {
-			await tabs.loadSessionInTab($activeTabId, sessionId);
-		}
+		tabs.openSession(sessionId);
 		sidebarOpen = false;
 	}
 
@@ -972,8 +964,8 @@
 							{#each $sessions as session}
 								<div
 									class="group flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-accent cursor-pointer transition-colors {$selectionMode && $selectedSessionIds.has(session.id) ? 'bg-accent/50' : ''}"
-									on:click={() => $selectionMode ? tabs.toggleSessionSelection(session.id, false) : openSessionInCurrentTab(session.id)}
-									on:keypress={(e) => e.key === 'Enter' && ($selectionMode ? tabs.toggleSessionSelection(session.id, false) : openSessionInCurrentTab(session.id))}
+									on:click={() => $selectionMode ? tabs.toggleSessionSelection(session.id, false) : openSession(session.id)}
+									on:keypress={(e) => e.key === 'Enter' && ($selectionMode ? tabs.toggleSessionSelection(session.id, false) : openSession(session.id))}
 									role="button"
 									tabindex="0"
 								>
@@ -993,15 +985,6 @@
 										</p>
 									</div>
 									{#if !$selectionMode}
-										<button
-											on:click|stopPropagation={() => openSessionInNewTab(session.id)}
-											class="opacity-0 group-hover:opacity-100 p-1 text-muted-foreground hover:text-primary transition-opacity"
-											title="Open in new tab"
-										>
-											<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-												<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-											</svg>
-										</button>
 										<button
 											on:click|stopPropagation={(e) => deleteSession(e, session.id)}
 											class="opacity-0 group-hover:opacity-100 p-1 text-muted-foreground hover:text-destructive transition-opacity"
@@ -1088,8 +1071,8 @@
 							{#each $adminSessions as session}
 								<div
 									class="group flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-accent cursor-pointer transition-colors {$adminSelectionMode && $selectedAdminSessionIds.has(session.id) ? 'bg-accent/50' : ''}"
-									on:click={() => $adminSelectionMode ? tabs.toggleSessionSelection(session.id, true) : openSessionInNewTab(session.id)}
-									on:keypress={(e) => e.key === 'Enter' && ($adminSelectionMode ? tabs.toggleSessionSelection(session.id, true) : openSessionInNewTab(session.id))}
+									on:click={() => $adminSelectionMode ? tabs.toggleSessionSelection(session.id, true) : openSession(session.id)}
+									on:keypress={(e) => e.key === 'Enter' && ($adminSelectionMode ? tabs.toggleSessionSelection(session.id, true) : openSession(session.id))}
 									role="button"
 									tabindex="0"
 								>
@@ -1230,8 +1213,8 @@
 					{#each $sessions as session}
 						<div
 							class="group flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-accent cursor-pointer transition-colors"
-							on:click={() => { openSessionInCurrentTab(session.id); sidebarOpen = false; }}
-							on:keypress={(e) => e.key === 'Enter' && openSessionInCurrentTab(session.id)}
+							on:click={() => { openSession(session.id); sidebarOpen = false; }}
+							on:keypress={(e) => e.key === 'Enter' && openSession(session.id)}
 							role="button"
 							tabindex="0"
 						>
@@ -1239,15 +1222,6 @@
 								<p class="text-sm text-foreground truncate">{truncateTitle(session.title)}</p>
 								<p class="text-xs text-muted-foreground">{formatDate(session.updated_at)}</p>
 							</div>
-							<button
-								on:click|stopPropagation={() => { openSessionInNewTab(session.id); sidebarOpen = false; }}
-								class="p-1 text-muted-foreground hover:text-primary transition-colors"
-								title="Open in new tab"
-							>
-								<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-								</svg>
-							</button>
 						</div>
 					{/each}
 					{#if $sessions.length === 0}
@@ -1730,7 +1704,7 @@
 								on:input={() => handleInputChange(tabId)}
 								on:keydown={(e) => handleKeyDown(e, tabId)}
 								placeholder="Message Claude... (type / for commands)"
-								class="w-full bg-card border border-border rounded-lg px-4 py-3 sm:py-2.5 text-foreground placeholder-muted-foreground resize-none focus:outline-none focus:ring-2 focus:ring-ring min-h-[52px] sm:min-h-[40px] max-h-[200px] leading-normal shadow-s"
+								class="w-full bg-card border border-border rounded-lg px-4 py-3 sm:py-2.5 text-foreground placeholder-muted-foreground resize-none focus:outline-none focus:ring-2 focus:ring-ring min-h-[80px] sm:min-h-[44px] max-h-[200px] leading-normal shadow-s"
 								rows="1"
 								disabled={currentTab.isStreaming || !$claudeAuthenticated}
 							></textarea>
