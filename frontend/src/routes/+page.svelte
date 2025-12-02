@@ -310,21 +310,12 @@
 		}
 	}
 
-	function autoResize(tabId: string) {
-		const textarea = textareas[tabId];
-		if (textarea) {
-			textarea.style.height = 'auto';
-			textarea.style.height = Math.min(textarea.scrollHeight, 200) + 'px';
-		}
-	}
-
 	// Handle input changes for command autocomplete
 	function handleInputChange(tabId: string) {
 		const input = tabInputs[tabId] || '';
 		// Show autocomplete when input starts with /
 		showCommandAutocomplete[tabId] = input.startsWith('/') && input.length > 0;
 		showCommandAutocomplete = showCommandAutocomplete;
-		autoResize(tabId);
 	}
 
 	// Handle command selection from autocomplete
@@ -1692,7 +1683,7 @@
 								on:input={() => handleInputChange(tabId)}
 								on:keydown={(e) => handleKeyDown(e, tabId)}
 								placeholder="Message Claude... (type / for commands)"
-								class="w-full bg-card border border-border rounded-lg px-4 py-3 sm:py-2.5 text-foreground placeholder-muted-foreground resize-none focus:outline-none focus:ring-2 focus:ring-ring min-h-[80px] sm:min-h-[44px] max-h-[200px] leading-normal shadow-s"
+								class="w-full bg-card border border-border rounded-lg px-4 py-3 sm:py-2.5 text-foreground placeholder-muted-foreground resize-none focus:outline-none focus:ring-2 focus:ring-ring h-[80px] sm:h-[44px] leading-normal shadow-s overflow-y-auto"
 								rows="1"
 								disabled={currentTab.isStreaming || !$claudeAuthenticated}
 							></textarea>
