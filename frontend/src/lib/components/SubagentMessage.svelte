@@ -188,13 +188,6 @@
 				</div>
 			{/if}
 
-			<!-- Final result summary -->
-			{#if message.content && message.agentStatus === 'completed'}
-				<div class="px-4 py-3 border-t border-border bg-green-500/5">
-					<div class="text-xs font-medium text-green-600 dark:text-green-400 mb-1">Final Result</div>
-					<pre class="text-sm text-foreground whitespace-pre-wrap overflow-x-auto max-h-64">{truncateContent(message.content, 1000)}</pre>
-				</div>
-			{/if}
 		</div>
 	{/if}
 </div>
