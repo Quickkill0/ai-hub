@@ -1810,10 +1810,19 @@
 												</svg>
 											</summary>
 											<div class="bg-card border-t border-border">
-												{#if message.toolInput}
+												{#if message.partialToolInput || message.toolInput}
 													<div class="px-4 py-3 border-b border-border/50">
 														<div class="text-xs text-muted-foreground mb-1 font-medium">Input</div>
-														<pre class="text-xs text-muted-foreground overflow-x-auto max-h-32 whitespace-pre-wrap break-words font-mono">{JSON.stringify(message.toolInput, null, 2)}</pre>
+														{#if message.streaming && message.partialToolInput}
+															<!-- Show raw streaming input with cursor -->
+															<pre class="text-xs text-muted-foreground overflow-x-auto max-h-32 whitespace-pre-wrap break-words font-mono">{message.partialToolInput}<span class="inline-block w-1.5 h-3 ml-0.5 bg-primary animate-pulse"></span></pre>
+														{:else if message.toolInput && Object.keys(message.toolInput).length > 0}
+															<!-- Show formatted JSON when complete -->
+															<pre class="text-xs text-muted-foreground overflow-x-auto max-h-32 whitespace-pre-wrap break-words font-mono">{JSON.stringify(message.toolInput, null, 2)}</pre>
+														{:else if message.partialToolInput}
+															<!-- Fallback: show partial input if toolInput is empty but we have partial -->
+															<pre class="text-xs text-muted-foreground overflow-x-auto max-h-32 whitespace-pre-wrap break-words font-mono">{message.partialToolInput}</pre>
+														{/if}
 													</div>
 												{/if}
 												{#if message.toolResult}
