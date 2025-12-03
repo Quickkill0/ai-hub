@@ -30,6 +30,7 @@
 	import RewindModal from '$lib/components/RewindModal.svelte';
 	import SystemMessage from '$lib/components/SystemMessage.svelte';
 	import CommandAutocomplete from '$lib/components/CommandAutocomplete.svelte';
+	import FileAutocomplete, { type FileItem } from '$lib/components/FileAutocomplete.svelte';
 	import SpotlightSearch from '$lib/components/SpotlightSearch.svelte';
 	import SubagentMessage from '$lib/components/SubagentMessage.svelte';
 	import { executeCommand, isSlashCommand, syncAfterRewind, listCommands, type Command } from '$lib/api/commands';
@@ -148,6 +149,10 @@
 	// Command autocomplete state
 	let showCommandAutocomplete: Record<string, boolean> = {};
 	let commandAutocompleteRefs: Record<string, CommandAutocomplete> = {};
+
+	// File autocomplete state (@ mentions)
+	let showFileAutocomplete: Record<string, boolean> = {};
+	let fileAutocompleteRefs: Record<string, FileAutocomplete> = {};
 
 	// Accordion states for profile form sections
 	let expandedSections: Record<string, boolean> = {
@@ -283,11 +288,20 @@
 
 	function handleKeyDown(e: KeyboardEvent, tabId: string) {
 		// Let the command autocomplete handle the event first if visible
-		const autocomplete = commandAutocompleteRefs[tabId];
-		if (autocomplete && showCommandAutocomplete[tabId]) {
-			const handled = autocomplete.handleKeyDown(e);
+		const commandAutocomplete = commandAutocompleteRefs[tabId];
+		if (commandAutocomplete && showCommandAutocomplete[tabId]) {
+			const handled = commandAutocomplete.handleKeyDown(e);
 			if (handled) {
-				return; // Autocomplete handled the event
+				return; // Command autocomplete handled the event
+			}
+		}
+
+		// Let file autocomplete handle the event if visible
+		const fileAutocomplete = fileAutocompleteRefs[tabId];
+		if (fileAutocomplete && showFileAutocomplete[tabId]) {
+			const handled = fileAutocomplete.handleKeyDown(e);
+			if (handled) {
+				return; // File autocomplete handled the event
 			}
 		}
 
@@ -301,12 +315,24 @@
 		}
 	}
 
-	// Handle input changes for command autocomplete
+	// Check if input contains an active @ mention (at start or after whitespace)
+	function hasActiveAtMention(input: string): boolean {
+		// Look for @ that's either at start or preceded by whitespace, and not yet completed
+		const match = input.match(/(?:^|[\s])@([^\s]*)$/);
+		return match !== null;
+	}
+
+	// Handle input changes for command and file autocomplete
 	function handleInputChange(tabId: string) {
 		const input = tabInputs[tabId] || '';
-		// Show autocomplete when input starts with /
+
+		// Show command autocomplete when input starts with /
 		showCommandAutocomplete[tabId] = input.startsWith('/') && input.length > 0;
 		showCommandAutocomplete = showCommandAutocomplete;
+
+		// Show file autocomplete when there's an active @ mention
+		showFileAutocomplete[tabId] = hasActiveAtMention(input) && !!$activeTab?.project;
+		showFileAutocomplete = showFileAutocomplete;
 	}
 
 	// Handle command selection from autocomplete
@@ -330,6 +356,67 @@
 				}
 			}, 0);
 		}
+	}
+
+	// Handle file selection from @ autocomplete
+	function handleFileSelect(tabId: string, file: FileItem) {
+		const input = tabInputs[tabId] || '';
+
+		// Find the last @ mention to replace
+		const match = input.match(/(?:^|[\s])@([^\s]*)$/);
+		if (!match) {
+			showFileAutocomplete[tabId] = false;
+			showFileAutocomplete = showFileAutocomplete;
+			return;
+		}
+
+		// Calculate where the @ starts
+		const atStartIndex = match.index! + (match[0].startsWith('@') ? 0 : 1);
+
+		// For directories, replace with path and keep autocomplete open
+		if (file.type === 'directory') {
+			const newInput = input.substring(0, atStartIndex) + '@' + file.path;
+			tabInputs[tabId] = newInput;
+			tabInputs = tabInputs;
+			// Keep autocomplete open for directory navigation
+			setTimeout(() => {
+				const textarea = textareas[tabId];
+				if (textarea) {
+					textarea.focus();
+					textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+				}
+			}, 0);
+			return;
+		}
+
+		// For files, add to the uploaded files list and replace @ mention with chip reference
+		const fileRef: FileUploadResponse = {
+			filename: file.name,
+			path: file.path,
+			full_path: file.path,
+			size: file.size || 0
+		};
+
+		// Add to tracked files
+		if (!tabUploadedFiles[tabId]) tabUploadedFiles[tabId] = [];
+		tabUploadedFiles[tabId] = [...tabUploadedFiles[tabId], fileRef];
+
+		// Replace @query with the file reference format
+		const newInput = input.substring(0, atStartIndex) + `@${file.path} `;
+		tabInputs[tabId] = newInput;
+		tabInputs = tabInputs;
+
+		// Close autocomplete and focus
+		showFileAutocomplete[tabId] = false;
+		showFileAutocomplete = showFileAutocomplete;
+
+		setTimeout(() => {
+			const textarea = textareas[tabId];
+			if (textarea) {
+				textarea.focus();
+				textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+			}
+		}, 0);
 	}
 
 	// Open the terminal modal for interactive commands (like /resume)
@@ -719,7 +806,7 @@
 		fileInput?.click();
 	}
 
-	async function handleFileSelect(event: Event) {
+	async function handleFileUpload(event: Event) {
 		const input = event.target as HTMLInputElement;
 		const files = input.files;
 		if (!files || files.length === 0 || !$activeTab?.project || !$activeTabId) return;
@@ -732,10 +819,11 @@
 				if (!tabUploadedFiles[tabId]) tabUploadedFiles[tabId] = [];
 				tabUploadedFiles[tabId] = [...tabUploadedFiles[tabId], result];
 
-				const fileRef = `[File: ${result.path}]`;
+				// Use @ format for file references
+				const fileRef = `@${result.path}`;
 				const currentPrompt = tabInputs[tabId] || '';
 				if (currentPrompt.trim()) {
-					tabInputs[tabId] = currentPrompt + '\n' + fileRef;
+					tabInputs[tabId] = currentPrompt + ' ' + fileRef;
 				} else {
 					tabInputs[tabId] = fileRef;
 				}
@@ -755,9 +843,13 @@
 		const file = files[index];
 		if (!file) return;
 
-		const fileRef = `[File: ${file.path}]`;
+		// Remove both @ format and legacy [File: path] format
+		const atRef = `@${file.path}`;
+		const legacyRef = `[File: ${file.path}]`;
 		let prompt = tabInputs[tabId] || '';
-		prompt = prompt.replace(fileRef, '').replace(/\n\n+/g, '\n').trim();
+		prompt = prompt.replace(atRef, '').replace(legacyRef, '');
+		// Clean up extra spaces and newlines
+		prompt = prompt.replace(/\s+/g, ' ').trim();
 		tabInputs[tabId] = prompt;
 		tabInputs = tabInputs; // Trigger Svelte reactivity
 		tabUploadedFiles[tabId] = files.filter((_, i) => i !== index);
@@ -1745,7 +1837,7 @@
 					{/if}
 
 					<!-- Hidden file input -->
-					<input type="file" bind:this={fileInput} on:change={handleFileSelect} class="hidden" multiple />
+					<input type="file" bind:this={fileInput} on:change={handleFileUpload} class="hidden" multiple />
 
 					<!-- Input Form -->
 					<form on:submit|preventDefault={() => handleSubmit(tabId)} class="flex items-center gap-2">
@@ -1769,7 +1861,7 @@
 							{/if}
 						</button>
 
-						<!-- Textarea with Command Autocomplete -->
+						<!-- Textarea with Command and File Autocomplete -->
 						<div class="flex-1 relative">
 							<!-- Command Autocomplete -->
 							<CommandAutocomplete
@@ -1784,12 +1876,25 @@
 								}}
 							/>
 
+							<!-- File Autocomplete (@ mentions) -->
+							<FileAutocomplete
+								bind:this={fileAutocompleteRefs[tabId]}
+								inputValue={tabInputs[tabId] || ''}
+								projectId={currentTab.project}
+								visible={showFileAutocomplete[tabId] || false}
+								onSelect={(file) => handleFileSelect(tabId, file)}
+								onClose={() => {
+									showFileAutocomplete[tabId] = false;
+									showFileAutocomplete = showFileAutocomplete;
+								}}
+							/>
+
 							<textarea
 								bind:this={textareas[tabId]}
 								bind:value={tabInputs[tabId]}
 								on:input={() => handleInputChange(tabId)}
 								on:keydown={(e) => handleKeyDown(e, tabId)}
-								placeholder="Message Claude... (type / for commands)"
+								placeholder="Message Claude... (/ commands, @ files)"
 								class="w-full bg-card border border-border rounded-lg px-4 py-3 sm:py-2.5 text-foreground placeholder-muted-foreground resize-none focus:outline-none focus:ring-2 focus:ring-ring h-[80px] sm:h-[44px] leading-normal shadow-s overflow-y-auto"
 								rows="1"
 								disabled={currentTab.isStreaming || !$claudeAuthenticated}
