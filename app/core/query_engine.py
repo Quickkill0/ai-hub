@@ -123,19 +123,27 @@ def build_options_from_profile(
         if override_append:
             final_system_prompt += "\n\n" + override_append
     elif isinstance(system_prompt, dict):
-        # Has preset config
-        existing_append = system_prompt.get("append", "")
-        full_append = SECURITY_INSTRUCTIONS
-        if existing_append:
-            full_append += "\n\n" + existing_append
-        if override_append:
-            full_append += "\n\n" + override_append
+        prompt_type = system_prompt.get("type", "preset")
 
-        final_system_prompt = {
-            "type": system_prompt.get("type", "preset"),
-            "preset": system_prompt.get("preset", "claude_code"),
-            "append": full_append
-        }
+        if prompt_type == "custom" and system_prompt.get("content"):
+            # Custom system prompt - use content directly with security instructions
+            final_system_prompt = SECURITY_INSTRUCTIONS + "\n\n" + system_prompt["content"]
+            if override_append:
+                final_system_prompt += "\n\n" + override_append
+        else:
+            # Preset system prompt - pass to SDK with append
+            existing_append = system_prompt.get("append", "")
+            full_append = SECURITY_INSTRUCTIONS
+            if existing_append:
+                full_append += "\n\n" + existing_append
+            if override_append:
+                full_append += "\n\n" + override_append
+
+            final_system_prompt = {
+                "type": "preset",
+                "preset": system_prompt.get("preset", "claude_code"),
+                "append": full_append
+            }
     else:
         # String system prompt - use it directly with security instructions
         final_system_prompt = SECURITY_INSTRUCTIONS + "\n\n" + str(system_prompt)

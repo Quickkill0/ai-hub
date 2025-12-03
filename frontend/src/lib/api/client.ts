@@ -128,6 +128,7 @@ export interface ProfileConfig {
 	system_prompt?: {
 		type: string;
 		preset?: string;
+		content?: string;
 		append?: string;
 	} | null;
 }
