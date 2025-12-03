@@ -316,10 +316,17 @@
 	}
 
 	// Check if input contains an active @ mention (at start or after whitespace)
+	// Returns true if there's an @ that could be a file reference (supports paths with spaces)
 	function hasActiveAtMention(input: string): boolean {
-		// Look for @ that's either at start or preceded by whitespace, and not yet completed
-		const match = input.match(/(?:^|[\s])@([^\s]*)$/);
-		return match !== null;
+		// Search backwards to find the last @ that's at start or preceded by whitespace
+		for (let i = input.length - 1; i >= 0; i--) {
+			if (input[i] === '@') {
+				if (i === 0 || /\s/.test(input[i - 1])) {
+					return true;
+				}
+			}
+		}
+		return false;
 	}
 
 	// Handle input changes for command and file autocomplete
@@ -358,20 +365,29 @@
 		}
 	}
 
+	// Find the last @ position that's at start or preceded by whitespace
+	function findLastAtIndex(input: string): number {
+		for (let i = input.length - 1; i >= 0; i--) {
+			if (input[i] === '@') {
+				if (i === 0 || /\s/.test(input[i - 1])) {
+					return i;
+				}
+			}
+		}
+		return -1;
+	}
+
 	// Handle file selection from @ autocomplete
 	function handleFileSelect(tabId: string, file: FileItem) {
 		const input = tabInputs[tabId] || '';
 
 		// Find the last @ mention to replace
-		const match = input.match(/(?:^|[\s])@([^\s]*)$/);
-		if (!match) {
+		const atStartIndex = findLastAtIndex(input);
+		if (atStartIndex === -1) {
 			showFileAutocomplete[tabId] = false;
 			showFileAutocomplete = showFileAutocomplete;
 			return;
 		}
-
-		// Calculate where the @ starts
-		const atStartIndex = match.index! + (match[0].startsWith('@') ? 0 : 1);
 
 		// For directories, replace with path and keep autocomplete open
 		if (file.type === 'directory') {

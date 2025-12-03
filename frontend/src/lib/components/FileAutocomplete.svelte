@@ -25,16 +25,25 @@
   let listElement: HTMLUListElement;
 
   // Extract the @ query from input - finds the last @ and text after it
+  // Supports paths with spaces by capturing everything after @ until end of input
   function extractAtQuery(input: string): { query: string; atIndex: number } | null {
     // Find the last @ that's either at the start or preceded by whitespace
-    const matches = [...input.matchAll(/(?:^|[\s])@([^\s]*)/g)];
-    if (matches.length === 0) return null;
+    // Search backwards to find the last valid @ position
+    let atIndex = -1;
+    for (let i = input.length - 1; i >= 0; i--) {
+      if (input[i] === '@') {
+        // Check if @ is at start or preceded by whitespace
+        if (i === 0 || /\s/.test(input[i - 1])) {
+          atIndex = i;
+          break;
+        }
+      }
+    }
 
-    const lastMatch = matches[matches.length - 1];
-    const fullMatch = lastMatch[0];
-    const query = lastMatch[1] || '';
-    // Calculate the actual @ position
-    const atIndex = lastMatch.index! + (fullMatch.startsWith('@') ? 0 : 1);
+    if (atIndex === -1) return null;
+
+    // Everything after @ is the query
+    const query = input.slice(atIndex + 1);
 
     return { query, atIndex };
   }
