@@ -1,16 +1,16 @@
 """
-Built-in agent profiles with subagent support
+Built-in agent profiles with global subagent support
 """
 
 from typing import Dict, Any, List, Optional
 from app.db import database
 
 
-# Built-in subagent templates
-# These are default subagents that come with the claude-code profile
-# Users can edit/customize them freely
+# Built-in subagent definitions (stored globally, independent of profiles)
+# Each subagent has a unique ID that profiles can reference
 BUILTIN_SUBAGENTS: Dict[str, Dict[str, Any]] = {
     "research-assistant": {
+        "name": "Research Assistant",
         "description": "Use for exploring codebases, finding patterns, or answering 'how does X work?' questions.",
         "prompt": """You are Claude Code, Anthropic's official CLI for Claude.
 
@@ -44,6 +44,7 @@ Notes:
         "model": "haiku"
     },
     "code-reviewer": {
+        "name": "Code Reviewer",
         "description": "Use PROACTIVELY when reviewing code changes. Expert at security, performance, and best practices.",
         "prompt": """You are a senior code reviewer. Analyze code for:
 - Security vulnerabilities (injection, auth issues, data exposure)
@@ -58,6 +59,7 @@ Avoid using emojis.""",
         "model": "sonnet"
     },
     "test-generator": {
+        "name": "Test Generator",
         "description": "Use when writing tests for functions, components, or APIs.",
         "prompt": """You are a test engineering specialist. Generate comprehensive tests that:
 - Cover happy paths and edge cases
@@ -71,6 +73,7 @@ Avoid using emojis.""",
         "model": "sonnet"
     },
     "bug-investigator": {
+        "name": "Bug Investigator",
         "description": "Use when debugging errors, crashes, or unexpected behavior.",
         "prompt": """You are a debugging specialist. When investigating bugs:
 - Trace the error to its root cause
@@ -114,19 +117,39 @@ BUILTIN_PROFILES: Dict[str, Dict[str, Any]] = {
             },
             # Include "user" to enable auto-compact and other Claude Code defaults
             "setting_sources": ["user", "project"],
-            # Default subagents
-            "agents": BUILTIN_SUBAGENTS
+            # Enable all built-in subagents by default (references global subagent IDs)
+            "enabled_agents": list(BUILTIN_SUBAGENTS.keys())
         }
     }
 }
 
 
+def seed_builtin_subagents():
+    """Seed the database with built-in subagents"""
+    for subagent_id, subagent_data in BUILTIN_SUBAGENTS.items():
+        existing = database.get_subagent(subagent_id)
+        if not existing:
+            # Create new subagent
+            database.create_subagent(
+                subagent_id=subagent_id,
+                name=subagent_data["name"],
+                description=subagent_data["description"],
+                prompt=subagent_data["prompt"],
+                tools=subagent_data.get("tools"),
+                model=subagent_data.get("model"),
+                is_builtin=False  # All subagents are editable
+            )
+
+
 def seed_builtin_profiles():
     """Seed the database with built-in profiles and update existing ones if needed"""
+    # First seed subagents
+    seed_builtin_subagents()
+
     for profile_id, profile_data in BUILTIN_PROFILES.items():
         existing = database.get_profile(profile_id)
         if not existing:
-            # Create new profile with all default subagents
+            # Create new profile with enabled_agents referencing global subagents
             database.create_profile(
                 profile_id=profile_id,
                 name=profile_data["name"],
@@ -148,9 +171,18 @@ def seed_builtin_profiles():
                 updated_config["setting_sources"] = new_sources
                 needs_update = True
 
-            # Add default subagents if none exist (migration for existing profiles)
-            if not existing_config.get("agents") and new_config.get("agents"):
-                updated_config["agents"] = new_config["agents"]
+            # Migrate from old "agents" dict to new "enabled_agents" list
+            if existing_config.get("agents") and not existing_config.get("enabled_agents"):
+                # Extract agent IDs from old format
+                old_agent_ids = list(existing_config["agents"].keys())
+                updated_config["enabled_agents"] = old_agent_ids
+                # Remove old agents dict
+                updated_config.pop("agents", None)
+                needs_update = True
+
+            # Add enabled_agents if none exist
+            if not existing_config.get("enabled_agents") and not existing_config.get("agents"):
+                updated_config["enabled_agents"] = new_config.get("enabled_agents", [])
                 needs_update = True
 
             # Update is_builtin to False so all profiles are editable

@@ -108,8 +108,8 @@ class ProfileConfig(BaseModel):
     # User identification
     user: Optional[str] = None  # User identifier
 
-    # Subagents - specialized agents that can be invoked by the main agent
-    agents: Optional[Dict[str, SubagentDefinition]] = None
+    # Enabled subagent IDs - references global subagents by ID
+    enabled_agents: Optional[List[str]] = None
 
 
 class ProfileBase(BaseModel):

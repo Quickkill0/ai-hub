@@ -142,21 +142,26 @@ def build_options_from_profile(
         if override_append:
             final_system_prompt += "\n\n" + override_append
 
-    # Build agents dict from profile config
-    agents_config = config.get("agents")
+    # Build agents dict from profile's enabled_agents
+    # Profile stores a list of subagent IDs that reference global subagents in the database
+    enabled_agent_ids = config.get("enabled_agents", [])
     agents_dict = None
-    if agents_config:
-        # Convert to SDK format - agents_config is Dict[str, SubagentDefinition-like dict]
+    if enabled_agent_ids:
         agents_dict = {}
-        for agent_name, agent_def in agents_config.items():
-            agents_dict[agent_name] = {
-                "description": agent_def.get("description", ""),
-                "prompt": agent_def.get("prompt", ""),
-            }
-            if agent_def.get("tools"):
-                agents_dict[agent_name]["tools"] = agent_def["tools"]
-            if agent_def.get("model"):
-                agents_dict[agent_name]["model"] = agent_def["model"]
+        for agent_id in enabled_agent_ids:
+            # Look up subagent from global database
+            subagent = database.get_subagent(agent_id)
+            if subagent:
+                agents_dict[agent_id] = {
+                    "description": subagent.get("description", ""),
+                    "prompt": subagent.get("prompt", ""),
+                }
+                if subagent.get("tools"):
+                    agents_dict[agent_id]["tools"] = subagent["tools"]
+                if subagent.get("model"):
+                    agents_dict[agent_id]["model"] = subagent["model"]
+            else:
+                logger.warning(f"Subagent not found: {agent_id}")
 
     # Build options with all ClaudeAgentOptions fields
     options = ClaudeAgentOptions(

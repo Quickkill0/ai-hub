@@ -34,6 +34,7 @@
 	import SpotlightSearch from '$lib/components/SpotlightSearch.svelte';
 	import SubagentMessage from '$lib/components/SubagentMessage.svelte';
 	import QuickActions from '$lib/components/QuickActions.svelte';
+	import SubagentManager from '$lib/components/SubagentManager.svelte';
 	import { executeCommand, isSlashCommand, syncAfterRewind, listCommands, type Command } from '$lib/api/commands';
 
 	// Configure marked for better code highlighting
@@ -146,6 +147,9 @@
 
 	// Spotlight search state (Cmd+K)
 	let showSpotlight = false;
+
+	// Subagent manager state
+	let showSubagentManager = false;
 
 	// Command autocomplete state
 	let showCommandAutocomplete: Record<string, boolean> = {};
@@ -916,6 +920,11 @@
 			<button on:click={() => toggleSidebarSection('projects')} class="w-10 h-10 rounded-lg flex items-center justify-center transition-colors {activeSidebarSection === 'projects' ? 'bg-primary text-primary-foreground' : 'hover:bg-accent text-muted-foreground hover:text-foreground'}" title="Projects">
 				<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+				</svg>
+			</button>
+			<button on:click={() => showSubagentManager = true} class="w-10 h-10 rounded-lg flex items-center justify-center transition-colors {showSubagentManager ? 'bg-primary text-primary-foreground' : 'hover:bg-accent text-muted-foreground hover:text-foreground'}" title="Subagents">
+				<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
 				</svg>
 			</button>
 		</div>
@@ -1969,6 +1978,11 @@
 	onNewChat={handleSpotlightNewChat}
 	onOpenSettings={handleSpotlightOpenSettings}
 />
+
+<!-- Subagent Manager Panel -->
+{#if showSubagentManager}
+	<SubagentManager onClose={() => showSubagentManager = false} />
+{/if}
 
 <!-- Profile Modal -->
 {#if showProfileModal}

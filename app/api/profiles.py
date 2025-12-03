@@ -2,43 +2,22 @@
 Profile management API routes
 """
 
-from typing import List, Dict, Any, Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, Depends, status, Request
 from pydantic import BaseModel, Field
 
-from app.core.models import Profile, ProfileCreate, ProfileUpdate, SubagentDefinition
+from app.core.models import Profile, ProfileCreate, ProfileUpdate
 from app.db import database
-from app.api.auth import require_auth, require_admin, get_api_user_from_request, is_admin_request
+from app.api.auth import require_auth, require_admin, get_api_user_from_request
 
 router = APIRouter(prefix="/api/v1/profiles", tags=["Profiles"])
 
 
-# Subagent-specific request/response models
-class SubagentResponse(BaseModel):
-    """Subagent definition response"""
-    name: str
-    description: str
-    prompt: str
-    tools: Optional[List[str]] = None
-    model: Optional[str] = None
-
-
-class SubagentCreateRequest(BaseModel):
-    """Request to create a new subagent"""
-    name: str = Field(..., pattern=r'^[a-z0-9-]+$', min_length=1, max_length=50)
-    description: str = Field(..., min_length=1)
-    prompt: str = Field(..., min_length=1)
-    tools: Optional[List[str]] = None
-    model: Optional[str] = None
-
-
-class SubagentUpdateRequest(BaseModel):
-    """Request to update a subagent"""
-    description: Optional[str] = None
-    prompt: Optional[str] = None
-    tools: Optional[List[str]] = None
-    model: Optional[str] = None
+# Request model for updating enabled agents
+class EnabledAgentsRequest(BaseModel):
+    """Request to update enabled agents for a profile"""
+    enabled_agents: List[str] = Field(..., description="List of subagent IDs to enable")
 
 
 @router.get("", response_model=List[Profile])
@@ -143,16 +122,16 @@ async def delete_profile(profile_id: str, token: str = Depends(require_admin)):
 
 
 # ============================================================================
-# Subagent Management Endpoints
+# Profile Enabled Agents Management
 # ============================================================================
 
-@router.get("/{profile_id}/agents", response_model=List[SubagentResponse])
-async def list_subagents(
+@router.get("/{profile_id}/enabled-agents", response_model=List[str])
+async def get_enabled_agents(
     request: Request,
     profile_id: str,
     token: str = Depends(require_auth)
 ):
-    """List all subagents for a profile"""
+    """Get the list of enabled subagent IDs for a profile"""
     api_user = get_api_user_from_request(request)
 
     # Check if API user is restricted to a specific profile
@@ -170,68 +149,16 @@ async def list_subagents(
             detail=f"Profile not found: {profile_id}"
         )
 
-    agents = profile.get("config", {}).get("agents", {})
-    return [
-        SubagentResponse(
-            name=name,
-            description=agent.get("description", ""),
-            prompt=agent.get("prompt", ""),
-            tools=agent.get("tools"),
-            model=agent.get("model")
-        )
-        for name, agent in agents.items()
-    ]
+    return profile.get("config", {}).get("enabled_agents", [])
 
 
-@router.get("/{profile_id}/agents/{agent_name}", response_model=SubagentResponse)
-async def get_subagent(
-    request: Request,
+@router.put("/{profile_id}/enabled-agents", response_model=List[str])
+async def update_enabled_agents(
     profile_id: str,
-    agent_name: str,
-    token: str = Depends(require_auth)
-):
-    """Get a specific subagent by name"""
-    api_user = get_api_user_from_request(request)
-
-    # Check if API user is restricted to a specific profile
-    if api_user and api_user.get("profile_id"):
-        if api_user["profile_id"] != profile_id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Access denied to this profile"
-            )
-
-    profile = database.get_profile(profile_id)
-    if not profile:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Profile not found: {profile_id}"
-        )
-
-    agents = profile.get("config", {}).get("agents", {})
-    if agent_name not in agents:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Subagent not found: {agent_name}"
-        )
-
-    agent = agents[agent_name]
-    return SubagentResponse(
-        name=agent_name,
-        description=agent.get("description", ""),
-        prompt=agent.get("prompt", ""),
-        tools=agent.get("tools"),
-        model=agent.get("model")
-    )
-
-
-@router.post("/{profile_id}/agents", response_model=SubagentResponse, status_code=status.HTTP_201_CREATED)
-async def create_subagent(
-    profile_id: str,
-    request: SubagentCreateRequest,
+    request: EnabledAgentsRequest,
     token: str = Depends(require_admin)
 ):
-    """Create a new subagent for a profile - Admin only"""
+    """Update the list of enabled subagent IDs for a profile - Admin only"""
     profile = database.get_profile(profile_id)
     if not profile:
         raise HTTPException(
@@ -239,48 +166,33 @@ async def create_subagent(
             detail=f"Profile not found: {profile_id}"
         )
 
-    config = profile.get("config", {})
-    agents = config.get("agents", {})
+    # Validate that all subagent IDs exist
+    all_subagents = database.get_all_subagents()
+    valid_ids = {s["id"] for s in all_subagents}
+    invalid_ids = [sid for sid in request.enabled_agents if sid not in valid_ids]
 
-    if request.name in agents:
+    if invalid_ids:
         raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Subagent already exists: {request.name}"
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid subagent IDs: {', '.join(invalid_ids)}"
         )
 
-    # Add new agent
-    new_agent = {
-        "description": request.description,
-        "prompt": request.prompt,
-    }
-    if request.tools:
-        new_agent["tools"] = request.tools
-    if request.model:
-        new_agent["model"] = request.model
+    # Update profile config
+    config = profile.get("config", {})
+    config["enabled_agents"] = request.enabled_agents
 
-    agents[request.name] = new_agent
-    config["agents"] = agents
-
-    # Update profile
     database.update_profile(profile_id=profile_id, config=config, allow_builtin=True)
 
-    return SubagentResponse(
-        name=request.name,
-        description=request.description,
-        prompt=request.prompt,
-        tools=request.tools,
-        model=request.model
-    )
+    return request.enabled_agents
 
 
-@router.put("/{profile_id}/agents/{agent_name}", response_model=SubagentResponse)
-async def update_subagent(
+@router.post("/{profile_id}/enabled-agents/{subagent_id}", status_code=status.HTTP_200_OK)
+async def enable_subagent(
     profile_id: str,
-    agent_name: str,
-    request: SubagentUpdateRequest,
+    subagent_id: str,
     token: str = Depends(require_admin)
 ):
-    """Update a subagent - Admin only"""
+    """Enable a subagent for a profile - Admin only"""
     profile = database.get_profile(profile_id)
     if not profile:
         raise HTTPException(
@@ -288,48 +200,33 @@ async def update_subagent(
             detail=f"Profile not found: {profile_id}"
         )
 
-    config = profile.get("config", {})
-    agents = config.get("agents", {})
-
-    if agent_name not in agents:
+    # Validate subagent exists
+    subagent = database.get_subagent(subagent_id)
+    if not subagent:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Subagent not found: {agent_name}"
+            detail=f"Subagent not found: {subagent_id}"
         )
 
-    # Update agent fields
-    agent = agents[agent_name]
-    if request.description is not None:
-        agent["description"] = request.description
-    if request.prompt is not None:
-        agent["prompt"] = request.prompt
-    if request.tools is not None:
-        agent["tools"] = request.tools
-    if request.model is not None:
-        agent["model"] = request.model
+    # Update profile config
+    config = profile.get("config", {})
+    enabled_agents = config.get("enabled_agents", [])
 
-    agents[agent_name] = agent
-    config["agents"] = agents
+    if subagent_id not in enabled_agents:
+        enabled_agents.append(subagent_id)
+        config["enabled_agents"] = enabled_agents
+        database.update_profile(profile_id=profile_id, config=config, allow_builtin=True)
 
-    # Update profile
-    database.update_profile(profile_id=profile_id, config=config, allow_builtin=True)
-
-    return SubagentResponse(
-        name=agent_name,
-        description=agent.get("description", ""),
-        prompt=agent.get("prompt", ""),
-        tools=agent.get("tools"),
-        model=agent.get("model")
-    )
+    return {"enabled": True, "subagent_id": subagent_id}
 
 
-@router.delete("/{profile_id}/agents/{agent_name}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_subagent(
+@router.delete("/{profile_id}/enabled-agents/{subagent_id}", status_code=status.HTTP_200_OK)
+async def disable_subagent(
     profile_id: str,
-    agent_name: str,
+    subagent_id: str,
     token: str = Depends(require_admin)
 ):
-    """Delete a subagent - Admin only"""
+    """Disable a subagent for a profile - Admin only"""
     profile = database.get_profile(profile_id)
     if not profile:
         raise HTTPException(
@@ -337,18 +234,13 @@ async def delete_subagent(
             detail=f"Profile not found: {profile_id}"
         )
 
+    # Update profile config
     config = profile.get("config", {})
-    agents = config.get("agents", {})
+    enabled_agents = config.get("enabled_agents", [])
 
-    if agent_name not in agents:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Subagent not found: {agent_name}"
-        )
+    if subagent_id in enabled_agents:
+        enabled_agents.remove(subagent_id)
+        config["enabled_agents"] = enabled_agents
+        database.update_profile(profile_id=profile_id, config=config, allow_builtin=True)
 
-    # Remove agent
-    del agents[agent_name]
-    config["agents"] = agents
-
-    # Update profile
-    database.update_profile(profile_id=profile_id, config=config, allow_builtin=True)
+    return {"enabled": False, "subagent_id": subagent_id}
