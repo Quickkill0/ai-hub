@@ -1,6 +1,4 @@
 <script lang="ts">
-  import { tick } from 'svelte';
-
   export interface FileItem {
     name: string;
     type: 'file' | 'directory';
@@ -23,6 +21,7 @@
   let selectedIndex = $state(0);
   let loading = $state(false);
   let currentPath = $state('');
+  let lastFetchedPath = $state<string | null>(null);
   let listElement: HTMLUListElement;
 
   // Extract the @ query from input - finds the last @ and text after it
@@ -40,14 +39,43 @@
     return { query, atIndex };
   }
 
-  // Fetch files when visible and projectId changes
+  // Get the directory path from query
+  function getPathFromQuery(query: string): string {
+    if (!query.includes('/')) return '';
+    const parts = query.split('/');
+    return parts.slice(0, -1).join('/');
+  }
+
+  // Get the filename filter from query
+  function getFilterFromQuery(query: string): string {
+    if (!query.includes('/')) return query;
+    return query.split('/').pop() || '';
+  }
+
+  // Fetch files when visible and projectId changes - initial load
   $effect(() => {
-    if (visible && projectId) {
+    if (visible && projectId && lastFetchedPath === null) {
       fetchFiles('');
     }
   });
 
-  // Filter files based on @ query
+  // Handle path changes from query - separate effect to avoid loops
+  $effect(() => {
+    if (!visible || !projectId) return;
+
+    const atInfo = extractAtQuery(inputValue);
+    if (!atInfo) return;
+
+    const query = atInfo.query.toLowerCase();
+    const targetPath = getPathFromQuery(query);
+
+    // Only fetch if path actually changed and we haven't fetched this path yet
+    if (targetPath !== currentPath && targetPath !== lastFetchedPath) {
+      fetchFiles(targetPath);
+    }
+  });
+
+  // Filter files based on @ query - pure filtering, no fetching
   $effect(() => {
     const atInfo = extractAtQuery(inputValue);
     if (!atInfo) {
@@ -56,61 +84,34 @@
     }
 
     const query = atInfo.query.toLowerCase();
+    const filterPart = getFilterFromQuery(query);
 
-    // Check if query contains path separator - means navigating into folder
-    if (query.includes('/')) {
-      const parts = query.split('/');
-      const pathPart = parts.slice(0, -1).join('/');
-      const namePart = parts[parts.length - 1];
-
-      // If path changed, fetch new directory
-      if (pathPart !== currentPath) {
-        fetchFiles(pathPart);
-        return;
-      }
-
-      // Filter by the filename part
-      if (!namePart) {
-        filteredFiles = [...files];
-      } else {
-        filteredFiles = files.filter(f =>
-          f.name.toLowerCase().includes(namePart)
-        );
-      }
+    // Filter files by name
+    let filtered: FileItem[];
+    if (!filterPart) {
+      filtered = [...files];
     } else {
-      // Reset to root if no path separator
-      if (currentPath !== '') {
-        fetchFiles('');
-        return;
-      }
-
-      // Filter root directory
-      if (!query) {
-        filteredFiles = [...files];
-      } else {
-        filteredFiles = files.filter(f =>
-          f.name.toLowerCase().includes(query)
-        );
-      }
+      filtered = files.filter(f =>
+        f.name.toLowerCase().includes(filterPart)
+      );
     }
 
     // Sort: directories first, then by match relevance
-    filteredFiles = filteredFiles.sort((a, b) => {
+    filteredFiles = filtered.sort((a, b) => {
       // Directories first
       if (a.type === 'directory' && b.type !== 'directory') return -1;
       if (b.type === 'directory' && a.type !== 'directory') return 1;
 
-      const queryPart = query.includes('/') ? query.split('/').pop()! : query;
       const aName = a.name.toLowerCase();
       const bName = b.name.toLowerCase();
 
       // Exact match first
-      if (aName === queryPart && bName !== queryPart) return -1;
-      if (bName === queryPart && aName !== queryPart) return 1;
+      if (aName === filterPart && bName !== filterPart) return -1;
+      if (bName === filterPart && aName !== filterPart) return 1;
 
       // Prefix match second
-      const aStarts = aName.startsWith(queryPart);
-      const bStarts = bName.startsWith(queryPart);
+      const aStarts = aName.startsWith(filterPart);
+      const bStarts = bName.startsWith(filterPart);
       if (aStarts && !bStarts) return -1;
       if (bStarts && !aStarts) return 1;
 
@@ -121,10 +122,21 @@
     selectedIndex = 0;
   });
 
+  // Reset when becoming invisible
+  $effect(() => {
+    if (!visible) {
+      lastFetchedPath = null;
+      currentPath = '';
+      files = [];
+      filteredFiles = [];
+    }
+  });
+
   async function fetchFiles(path: string) {
     if (!projectId) return;
 
     loading = true;
+    lastFetchedPath = path;
     currentPath = path;
 
     try {
@@ -230,6 +242,10 @@
     if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
     return `${(size / (1024 * 1024)).toFixed(1)} MB`;
   }
+
+  function goToRoot() {
+    fetchFiles('');
+  }
 </script>
 
 {#if visible && (filteredFiles.length > 0 || loading)}
@@ -249,7 +265,7 @@
         <button
           type="button"
           class="text-xs text-blue-400 hover:text-blue-300"
-          onclick={() => fetchFiles('')}
+          onclick={goToRoot}
         >
           ← root
         </button>
