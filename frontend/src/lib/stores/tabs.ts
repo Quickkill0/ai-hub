@@ -1228,12 +1228,25 @@ function createTabsStore() {
 					tabs: s.tabs.map(tab => {
 						if (tab.id !== tabId) return tab;
 
+						// Find the subagent to get its linked toolId
+						const subagent = tab.messages.find(m => m.type === 'subagent' && m.agentId === agentId);
+						const linkedToolId = subagent?.toolId;
+
 						const messages = tab.messages.map(m => {
+							// Update the subagent message
 							if (m.type === 'subagent' && m.agentId === agentId) {
 								return {
 									...m,
 									content: result || '',
 									agentStatus: isError ? 'error' as const : 'completed' as const,
+									streaming: false
+								};
+							}
+							// Also mark the linked Task tool_use as complete
+							if (linkedToolId && m.type === 'tool_use' && m.toolId === linkedToolId) {
+								return {
+									...m,
+									toolStatus: 'complete' as const,
 									streaming: false
 								};
 							}
