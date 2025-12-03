@@ -146,6 +146,13 @@ def seed_builtin_profiles():
     # First seed subagents
     seed_builtin_subagents()
 
+    # Migration: Ensure ALL profiles have is_builtin = False (not just BUILTIN_PROFILES)
+    # This fixes any profiles that were created with is_builtin = True before the policy change
+    all_profiles = database.get_all_profiles()
+    for profile in all_profiles:
+        if profile.get("is_builtin"):
+            database.set_profile_builtin(profile["id"], False)
+
     for profile_id, profile_data in BUILTIN_PROFILES.items():
         existing = database.get_profile(profile_id)
         if not existing:
@@ -185,19 +192,12 @@ def seed_builtin_profiles():
                 updated_config["enabled_agents"] = new_config.get("enabled_agents", [])
                 needs_update = True
 
-            # Update is_builtin to False so all profiles are editable
-            if existing.get("is_builtin"):
-                needs_update = True
-
             if needs_update:
                 database.update_profile(
                     profile_id=profile_id,
                     config=updated_config,
                     allow_builtin=True  # Allow updating for migrations
                 )
-                # Also update is_builtin flag to False
-                if existing.get("is_builtin"):
-                    database.set_profile_builtin(profile_id, False)
 
 
 def get_profile_or_builtin(profile_id: str) -> Optional[Dict[str, Any]]:
