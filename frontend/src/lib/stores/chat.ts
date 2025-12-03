@@ -52,12 +52,12 @@ interface ChatState {
 	wsConnected: boolean;
 }
 
-// Load persisted values from localStorage
+// Load persisted values from localStorage - empty string means no selection
 function getPersistedProfile(): string {
 	if (typeof window !== 'undefined') {
-		return localStorage.getItem('aihub_selectedProfile') || 'claude-code';
+		return localStorage.getItem('aihub_selectedProfile') || '';
 	}
-	return 'claude-code';
+	return '';
 }
 
 function getPersistedProject(): string {

@@ -186,12 +186,12 @@ async function loadTabsFromServer(): Promise<PersistedTabsState | null> {
 	return null;
 }
 
-// Load persisted values
+// Load persisted values - empty string means no selection (user must choose)
 function getPersistedProfile(): string {
 	if (typeof window !== 'undefined') {
-		return localStorage.getItem('aihub_selectedProfile') || 'claude-code';
+		return localStorage.getItem('aihub_selectedProfile') || '';
 	}
-	return 'claude-code';
+	return '';
 }
 
 function getPersistedProject(): string {
@@ -1688,6 +1688,13 @@ function createTabsStore() {
 			updateTab(tabId, { project: projectId });
 		},
 
+
+		/**
+		 * Set error for a tab
+		 */
+		setTabError(tabId: string, error: string) {
+			updateTab(tabId, { error });
+		},
 
 		/**
 		 * Clear error for a tab

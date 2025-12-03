@@ -325,6 +325,16 @@
 		const prompt = tabInputs[tabId] || '';
 		if (!prompt.trim() || !$activeTab || $activeTab.isStreaming) return;
 
+		// Require profile and project to be selected before sending messages
+		if (!$activeTab.profile) {
+			tabs.setTabError(tabId, 'Please select a profile before starting a chat');
+			return;
+		}
+		if (!$activeTab.project) {
+			tabs.setTabError(tabId, 'Please select a project before starting a chat');
+			return;
+		}
+
 		tabInputs[tabId] = '';
 		tabInputs = tabInputs; // Trigger Svelte reactivity
 		tabUploadedFiles[tabId] = [];
@@ -1451,10 +1461,10 @@
 					<button
 						class="flex items-center gap-1 px-2 py-1 text-sm text-foreground hover:bg-accent rounded-md transition-colors"
 					>
-						<svg class="w-4 h-4 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<svg class="w-4 h-4 {currentTab.profile ? 'text-muted-foreground' : 'text-amber-500'}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
 						</svg>
-						<span class="hidden sm:inline max-w-[120px] truncate">{$profiles.find((p) => p.id === currentTab.profile)?.name || 'Profile'}</span>
+						<span class="hidden sm:inline max-w-[120px] truncate {!currentTab.profile ? 'text-amber-500' : ''}">{$profiles.find((p) => p.id === currentTab.profile)?.name || 'Select Profile'}</span>
 						<svg class="w-3 h-3 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
 						</svg>
@@ -1462,20 +1472,24 @@
 					<!-- Profile dropdown -->
 					<div class="absolute left-0 top-full mt-1 w-48 bg-card border border-border rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
 						<div class="py-1">
-							{#each $profiles as profile}
-								<button
-									on:click={() => setTabProfile(tabId, profile.id)}
-									class="w-full px-3 py-2 text-left text-sm hover:bg-accent transition-colors {currentTab.profile === profile.id ? 'text-primary' : 'text-foreground'}"
-								>
-									{profile.name}
-								</button>
-							{/each}
+							{#if $profiles.length === 0}
+								<p class="px-3 py-2 text-sm text-muted-foreground">No profiles yet</p>
+							{:else}
+								{#each $profiles as profile}
+									<button
+										on:click={() => setTabProfile(tabId, profile.id)}
+										class="w-full px-3 py-2 text-left text-sm hover:bg-accent transition-colors {currentTab.profile === profile.id ? 'text-primary' : 'text-foreground'}"
+									>
+										{profile.name}
+									</button>
+								{/each}
+							{/if}
 							<div class="border-t border-border my-1"></div>
 							<button
 								on:click={() => (showProfileModal = true)}
 								class="w-full px-3 py-2 text-left text-sm text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
 							>
-								Manage Profiles...
+								{$profiles.length === 0 ? 'Create Profile...' : 'Manage Profiles...'}
 							</button>
 						</div>
 					</div>
@@ -1490,10 +1504,10 @@
 						class="flex items-center gap-1 px-2 py-1 text-sm text-foreground {currentTab.sessionId ? 'cursor-default opacity-75' : 'hover:bg-accent'} rounded-md transition-colors"
 						title={currentTab.sessionId ? 'Project is locked for this chat' : 'Select project'}
 					>
-						<svg class="w-4 h-4 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<svg class="w-4 h-4 {currentTab.project ? 'text-muted-foreground' : 'text-amber-500'}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
 						</svg>
-						<span class="hidden sm:inline max-w-[120px] truncate">{$projects.find((p) => p.id === currentTab.project)?.name || 'Default'}</span>
+						<span class="hidden sm:inline max-w-[120px] truncate {!currentTab.project ? 'text-amber-500' : ''}">{$projects.find((p) => p.id === currentTab.project)?.name || 'Select Project'}</span>
 						{#if currentTab.sessionId}
 							<!-- Lock icon when session exists -->
 							<svg class="w-3 h-3 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1509,26 +1523,24 @@
 					{#if !currentTab.sessionId}
 						<div class="absolute left-0 top-full mt-1 w-48 bg-card border border-border rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
 							<div class="py-1">
-								<button
-									on:click={() => setTabProject(tabId, '')}
-									class="w-full px-3 py-2 text-left text-sm hover:bg-accent transition-colors {!currentTab.project ? 'text-primary' : 'text-foreground'}"
-								>
-									Default
-								</button>
-								{#each $projects as project}
-									<button
-										on:click={() => setTabProject(tabId, project.id)}
-										class="w-full px-3 py-2 text-left text-sm hover:bg-accent transition-colors {currentTab.project === project.id ? 'text-primary' : 'text-foreground'}"
-									>
-										{project.name}
-									</button>
-								{/each}
+								{#if $projects.length === 0}
+									<p class="px-3 py-2 text-sm text-muted-foreground">No projects yet</p>
+								{:else}
+									{#each $projects as project}
+										<button
+											on:click={() => setTabProject(tabId, project.id)}
+											class="w-full px-3 py-2 text-left text-sm hover:bg-accent transition-colors {currentTab.project === project.id ? 'text-primary' : 'text-foreground'}"
+										>
+											{project.name}
+										</button>
+									{/each}
+								{/if}
 								<div class="border-t border-border my-1"></div>
 								<button
 									on:click={() => (showProjectModal = true)}
 									class="w-full px-3 py-2 text-left text-sm text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
 								>
-									Manage Projects...
+									{$projects.length === 0 ? 'Create Project...' : 'Manage Projects...'}
 								</button>
 							</div>
 						</div>

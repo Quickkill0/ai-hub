@@ -496,7 +496,7 @@
 											</span>
 											<span>
 												Project: <span class="text-gray-300">
-													{projects.find(p => p.id === user.project_id)?.name || 'Default'}
+													{projects.find(p => p.id === user.project_id)?.name || 'None'}
 												</span>
 											</span>
 											<span>Created: {formatDate(user.created_at)}</span>

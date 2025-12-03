@@ -1535,3 +1535,14 @@ def delete_subagent(subagent_id: str) -> bool:
         cursor = conn.cursor()
         cursor.execute("DELETE FROM subagents WHERE id = ?", (subagent_id,))
         return cursor.rowcount > 0
+
+
+def set_subagent_builtin(subagent_id: str, is_builtin: bool) -> bool:
+    """Set the is_builtin flag for a subagent"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE subagents SET is_builtin = ?, updated_at = ? WHERE id = ?",
+            (is_builtin, datetime.utcnow().isoformat(), subagent_id)
+        )
+        return cursor.rowcount > 0
