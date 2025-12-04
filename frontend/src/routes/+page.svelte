@@ -1988,18 +1988,6 @@
 			{@const currentTab = $activeTab}
 			{@const tabId = currentTab.id}
 
-			<!-- Streaming Banner (shown when streaming is active) -->
-			{#if currentTab.isStreaming}
-				<div class="bg-blue-500/10 border-b border-blue-500/20 px-4 py-2">
-					<div class="max-w-5xl mx-auto flex items-center gap-2 text-sm text-blue-400">
-						<svg class="w-4 h-4 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
-						</svg>
-						<span>Response streaming in progress...</span>
-					</div>
-				</div>
-			{/if}
-
 			<!-- Messages Area -->
 			<div
 				use:autoScroll={tabId}
