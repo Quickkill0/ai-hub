@@ -114,23 +114,23 @@
 	$: isHighCost = (session.total_cost_usd ?? 0) > 10;
 </script>
 
-<div class="relative overflow-hidden rounded-lg">
-	<!-- Delete button (revealed on swipe) -->
-	<button
-		class="absolute inset-y-0 right-0 w-[72px] bg-destructive flex items-center justify-center transition-opacity active:bg-destructive/80"
-		class:opacity-100={swipeTransform > 0}
-		class:opacity-0={swipeTransform === 0}
-		on:click|stopPropagation={handleDelete}
-		aria-label="Delete session"
-	>
-		<svg class="w-5 h-5 text-destructive-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-			<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-		</svg>
-	</button>
+<div class="relative rounded-lg">
+	<!-- Delete button container - sits behind the card -->
+	<div class="absolute inset-0 flex justify-end rounded-lg overflow-hidden">
+		<button
+			class="w-[72px] bg-destructive flex items-center justify-center active:bg-destructive/80"
+			on:click|stopPropagation={handleDelete}
+			aria-label="Delete session"
+		>
+			<svg class="w-5 h-5 text-destructive-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+				<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+			</svg>
+		</button>
+	</div>
 
-	<!-- Main card content -->
+	<!-- Main card content - slides to reveal delete button -->
 	<div
-		class="group relative flex items-start gap-3 px-3 py-2.5 rounded-lg cursor-pointer select-none bg-card {isActive ? 'bg-primary/20 border border-primary/30' : 'hover:bg-accent'} {selectionMode && isSelected ? 'bg-accent/50' : ''}"
+		class="relative flex items-start gap-3 px-3 py-2.5 rounded-lg cursor-pointer select-none bg-card {isActive ? 'bg-primary/20 border border-primary/30' : 'hover:bg-accent'} {selectionMode && isSelected ? 'bg-accent/50' : ''}"
 		class:transition-transform={!directionLocked}
 		style="transform: translateX(-{swipeTransform}px)"
 		on:click={handleCardClick}
