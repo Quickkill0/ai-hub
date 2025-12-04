@@ -722,8 +722,8 @@
 		// Auto-scroll is handled by the autoScroll action on the messages container
 	}
 
-	async function deleteSession(e: Event, sessionId: string) {
-		e.stopPropagation();
+	async function deleteSession(e: Event | null, sessionId: string) {
+		e?.stopPropagation();
 		if (confirm('Delete this session?')) {
 			await tabs.deleteSession(sessionId);
 		}
