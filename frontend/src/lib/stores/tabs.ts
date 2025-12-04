@@ -412,10 +412,204 @@ function createTabsStore() {
 	}
 
 	/**
+	 * Handle sync events from other devices (via SyncEngine)
+	 */
+	function handleSyncEvent(tabId: string, data: Record<string, unknown>) {
+		const eventType = data.event_type as string;
+		const sessionId = data.session_id as string;
+		const eventData = data.data as Record<string, unknown>;
+
+		// Only process events for tabs that have this session loaded
+		const tab = getTab(tabId);
+		if (!tab || tab.sessionId !== sessionId) {
+			return;
+		}
+
+		console.log(`[Tab ${tabId}] Sync event:`, eventType, eventData);
+
+		switch (eventType) {
+			case 'stream_start': {
+				// Another device started streaming
+				console.log(`[Tab ${tabId}] Another device started streaming`);
+				const messageId = eventData.message_id as string;
+
+				update(s => ({
+					...s,
+					tabs: s.tabs.map(t => {
+						if (t.id !== tabId) return t;
+						return {
+							...t,
+							isStreaming: true,
+							messages: [...t.messages, {
+								id: messageId || `assistant-sync-${Date.now()}`,
+								role: 'assistant' as const,
+								content: '',
+								type: 'text' as const,
+								streaming: true
+							}]
+						};
+					})
+				}));
+				break;
+			}
+
+			case 'stream_chunk': {
+				// Content chunk from another device
+				const chunkType = eventData.chunk_type as string;
+				const content = eventData.content as string;
+
+				if (chunkType === 'text') {
+					update(s => ({
+						...s,
+						tabs: s.tabs.map(t => {
+							if (t.id !== tabId) return t;
+
+							const messages = [...t.messages];
+							const streamingIdx = messages.findLastIndex(
+								m => m.type === 'text' && m.role === 'assistant' && m.streaming
+							);
+
+							if (streamingIdx !== -1) {
+								messages[streamingIdx] = {
+									...messages[streamingIdx],
+									content: messages[streamingIdx].content + (content || '')
+								};
+							} else {
+								messages.push({
+									id: `text-sync-${Date.now()}`,
+									role: 'assistant' as const,
+									content: content || '',
+									type: 'text' as const,
+									streaming: true
+								});
+							}
+
+							return { ...t, messages };
+						})
+					}));
+				} else if (chunkType === 'tool_use') {
+					update(s => ({
+						...s,
+						tabs: s.tabs.map(t => {
+							if (t.id !== tabId) return t;
+
+							let messages = [...t.messages];
+
+							// Handle current streaming text message
+							const streamingIdx = messages.findLastIndex(
+								m => m.type === 'text' && m.role === 'assistant' && m.streaming
+							);
+							if (streamingIdx !== -1) {
+								if (messages[streamingIdx].content) {
+									messages[streamingIdx] = { ...messages[streamingIdx], streaming: false };
+								} else {
+									messages = messages.filter((_, i) => i !== streamingIdx);
+								}
+							}
+
+							// Add tool use message
+							messages.push({
+								id: `tool-sync-${Date.now()}-${eventData.tool_id || ''}`,
+								role: 'assistant' as const,
+								content: '',
+								type: 'tool_use' as const,
+								toolName: eventData.tool_name as string,
+								toolId: eventData.tool_id as string,
+								toolInput: eventData.tool_input as Record<string, unknown>,
+								toolStatus: 'running' as const,
+								streaming: true
+							});
+
+							return { ...t, messages };
+						})
+					}));
+				} else if (chunkType === 'tool_result') {
+					update(s => ({
+						...s,
+						tabs: s.tabs.map(t => {
+							if (t.id !== tabId) return t;
+
+							const messages = [...t.messages];
+
+							// Mark the matching tool_use as complete
+							const toolId = eventData.tool_id as string;
+							const toolUseIdx = messages.findLastIndex(
+								m => m.type === 'tool_use' && (m.toolId === toolId || m.streaming)
+							);
+							if (toolUseIdx !== -1) {
+								messages[toolUseIdx] = {
+									...messages[toolUseIdx],
+									toolResult: content,
+									toolStatus: 'complete' as const,
+									streaming: false
+								};
+							}
+
+							return { ...t, messages };
+						})
+					}));
+				}
+				break;
+			}
+
+			case 'stream_end': {
+				// Another device finished streaming
+				console.log(`[Tab ${tabId}] Another device finished streaming`);
+				const metadata = eventData.metadata as Record<string, unknown>;
+				const interrupted = eventData.interrupted as boolean;
+
+				update(s => ({
+					...s,
+					tabs: s.tabs.map(t => {
+						if (t.id !== tabId) return t;
+
+						// Mark all streaming messages as complete
+						let messages = t.messages.map(m =>
+							m.streaming ? { ...m, streaming: false } : m
+						);
+
+						// Remove empty text messages
+						messages = messages.filter(
+							m => !(m.type === 'text' && m.role === 'assistant' && !m.content)
+						);
+
+						// Add metadata to last assistant message
+						if (messages.length > 0) {
+							const lastIdx = messages.findLastIndex(m => m.role === 'assistant');
+							if (lastIdx !== -1) {
+								messages[lastIdx] = {
+									...messages[lastIdx],
+									metadata,
+									content: interrupted
+										? messages[lastIdx].content + '\n\n[Stopped]'
+										: messages[lastIdx].content
+								};
+							}
+						}
+
+						return { ...t, messages, isStreaming: false };
+					})
+				}));
+
+				// Refresh sessions list
+				loadSessionsInternal();
+				break;
+			}
+		}
+	}
+
+	/**
 	 * Handle incoming WebSocket message for a tab
 	 */
 	function handleTabMessage(tabId: string, data: Record<string, unknown>) {
 		const msgType = data.type as string;
+		const eventType = data.event_type as string;
+
+		// Handle sync events from other devices
+		if (eventType) {
+			handleSyncEvent(tabId, data);
+			return;
+		}
 
 		switch (msgType) {
 			case 'history': {
