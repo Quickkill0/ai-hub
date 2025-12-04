@@ -125,7 +125,7 @@
 
 	<!-- Main card content - slides to reveal delete indicator -->
 	<div
-		class="relative flex items-start gap-3 px-3 py-2.5 rounded-lg cursor-pointer select-none bg-card {isActive ? 'bg-primary/20 border border-primary/30' : 'hover:bg-accent'} {selectionMode && isSelected ? 'bg-accent/50' : ''}"
+		class="group relative flex items-start gap-3 px-3 py-2.5 rounded-lg cursor-pointer select-none bg-card {isActive ? 'bg-primary/20 border border-primary/30' : 'hover:bg-accent'} {selectionMode && isSelected ? 'bg-accent/50' : ''}"
 		class:transition-transform={!directionLocked}
 		style="transform: translateX(-{currentSwipeX}px)"
 		on:click={handleCardClick}
