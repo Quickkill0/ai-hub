@@ -317,15 +317,18 @@ function createTabsStore() {
 			updateTab(tabId, { wsConnected: true, error: null });
 
 			// If reconnecting and tab has a session, reload it to get latest messages
+			// But only if not currently streaming (don't interrupt active streams)
 			if (isReconnect) {
 				const tab = getTab(tabId);
-				if (tab?.sessionId) {
+				if (tab?.sessionId && !tab.isStreaming) {
 					console.log(`[Tab ${tabId}] Reloading session after reconnect:`, tab.sessionId);
 					// Use the WebSocket to request session reload
 					ws.send(JSON.stringify({
 						type: 'load_session',
 						session_id: tab.sessionId
 					}));
+				} else if (tab?.isStreaming) {
+					console.log(`[Tab ${tabId}] Skipping session reload - streaming in progress`);
 				}
 			}
 
