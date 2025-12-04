@@ -72,7 +72,7 @@
 	let sidebarTab: 'my-chats' | 'admin' = 'my-chats';
 
 	// Icon Rail state
-	type SidebarSection = 'none' | 'sessions' | 'projects';
+	type SidebarSection = 'none' | 'sessions' | 'projects' | 'profiles' | 'subagents';
 	let activeSidebarSection: SidebarSection = 'none';
 	let sidebarPinned = false;
 
@@ -1012,7 +1012,12 @@
 					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
 				</svg>
 			</button>
-			<button on:click={() => showSubagentManager = true} class="w-10 h-10 rounded-lg flex items-center justify-center transition-colors {showSubagentManager ? 'bg-primary text-primary-foreground' : 'hover:bg-accent text-muted-foreground hover:text-foreground'}" title="Subagents">
+			<button on:click={() => toggleSidebarSection('profiles')} class="w-10 h-10 rounded-lg flex items-center justify-center transition-colors {activeSidebarSection === 'profiles' ? 'bg-primary text-primary-foreground' : 'hover:bg-accent text-muted-foreground hover:text-foreground'}" title="Profiles">
+				<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+				</svg>
+			</button>
+			<button on:click={() => toggleSidebarSection('subagents')} class="w-10 h-10 rounded-lg flex items-center justify-center transition-colors {activeSidebarSection === 'subagents' ? 'bg-primary text-primary-foreground' : 'hover:bg-accent text-muted-foreground hover:text-foreground'}" title="Subagents">
 				<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
 				</svg>
@@ -1036,7 +1041,7 @@
 		<button class="hidden lg:block fixed inset-0 z-30 bg-black/20" on:click={closeSidebar} aria-label="Close sidebar"></button>
 		<aside class="hidden lg:flex fixed inset-y-0 left-12 z-40 w-72 bg-card border-r border-border flex-col shadow-l sidebar-slide-in">
 			<div class="p-4 border-b border-border flex items-center justify-between">
-				<span class="font-semibold text-foreground">{activeSidebarSection === 'sessions' ? 'Sessions' : 'Projects'}</span>
+				<span class="font-semibold text-foreground">{activeSidebarSection === 'sessions' ? 'Sessions' : activeSidebarSection === 'projects' ? 'Projects' : activeSidebarSection === 'profiles' ? 'Profiles' : 'Subagents'}</span>
 				<div class="flex items-center gap-1">
 					{#if activeSidebarSection === 'sessions'}
 						<button on:click={() => sessionSearchExpanded = !sessionSearchExpanded} class="p-1.5 rounded-md transition-colors {sessionSearchExpanded ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-accent'}" title="Search sessions">
@@ -1344,6 +1349,73 @@
 						{/if}
 					</div>
 					<button on:click={() => showProjectModal = true} class="w-full py-2 border border-dashed border-border rounded-lg text-muted-foreground hover:text-foreground hover:border-muted-foreground transition-colors">+ New Project</button>
+				</div>
+			{/if}
+
+			<!-- Profiles Panel Content -->
+			{#if activeSidebarSection === 'profiles'}
+				<div class="flex-1 overflow-y-auto p-3">
+					<div class="space-y-2 mb-4">
+						{#each $profiles as profile}
+							<button
+								class="w-full flex items-center gap-3 p-3 bg-accent rounded-lg hover:bg-accent/80 transition-colors text-left {$activeTab?.profile === profile.id ? 'ring-2 ring-primary' : ''}"
+								on:click={() => { if ($activeTabId) setTabProfile($activeTabId, profile.id); closeSidebar(); }}
+							>
+								<svg class="w-5 h-5 text-muted-foreground flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+								</svg>
+								<div class="flex-1 min-w-0">
+									<p class="text-sm text-foreground font-medium truncate">{profile.name}</p>
+									<p class="text-xs text-muted-foreground truncate">{profile.description || 'No description'}</p>
+								</div>
+								{#if profile.is_builtin}
+									<span class="text-[10px] px-1.5 py-0.5 bg-muted text-muted-foreground rounded">Built-in</span>
+								{/if}
+							</button>
+						{/each}
+						{#if $profiles.length === 0}
+							<p class="text-xs text-muted-foreground px-2">No profiles yet</p>
+						{/if}
+					</div>
+					<button on:click={() => showProfileModal = true} class="w-full py-2 border border-dashed border-border rounded-lg text-muted-foreground hover:text-foreground hover:border-muted-foreground transition-colors">+ New Profile</button>
+				</div>
+			{/if}
+
+			<!-- Subagents Panel Content -->
+			{#if activeSidebarSection === 'subagents'}
+				<div class="flex-1 overflow-y-auto p-3">
+					<div class="space-y-2 mb-4">
+						{#each allSubagents as agent}
+							<div class="w-full p-3 bg-accent rounded-lg">
+								<div class="flex items-start gap-3">
+									<svg class="w-5 h-5 text-muted-foreground flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+									</svg>
+									<div class="flex-1 min-w-0">
+										<div class="flex items-center gap-2">
+											<p class="text-sm text-foreground font-medium truncate">{agent.name}</p>
+											{#if agent.is_builtin}
+												<span class="text-[10px] px-1.5 py-0.5 bg-muted text-muted-foreground rounded">Built-in</span>
+											{/if}
+										</div>
+										<p class="text-xs text-muted-foreground line-clamp-2">{agent.description}</p>
+										{#if agent.model}
+											<span class="text-[10px] text-primary mt-1 inline-block">{agent.model}</span>
+										{/if}
+									</div>
+								</div>
+							</div>
+						{/each}
+						{#if allSubagents.length === 0}
+							<div class="text-center py-8">
+								<svg class="w-12 h-12 mx-auto text-muted-foreground/30 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+								</svg>
+								<p class="text-xs text-muted-foreground">No subagents configured</p>
+							</div>
+						{/if}
+					</div>
+					<button on:click={() => showSubagentManager = true} class="w-full py-2 border border-dashed border-border rounded-lg text-muted-foreground hover:text-foreground hover:border-muted-foreground transition-colors">+ Manage Subagents</button>
 				</div>
 			{/if}
 		</aside>
