@@ -2227,17 +2227,14 @@
 										tabs.setTabModelOverride(tabId, newValue);
 									}
 								}}
-								class="appearance-none bg-card border border-border rounded-lg pl-2.5 pr-7 py-1.5 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring cursor-pointer hover:bg-accent transition-colors {currentTab.modelOverride ? 'border-primary bg-primary/10 font-medium' : ''}"
-								disabled={currentTab.isStreaming || !!currentTab.sessionId}
-								title={currentTab.sessionId ? 'Model locked for this session' : 'Select model'}
+								class="bg-card border border-border rounded-lg px-2.5 py-1.5 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring cursor-pointer hover:bg-accent transition-colors {currentTab.modelOverride ? 'border-primary bg-primary/10 font-medium' : ''}"
+								disabled={currentTab.isStreaming}
+								title="Select model for next message"
 							>
 								<option value="sonnet">Sonnet</option>
 								<option value="opus">Opus</option>
 								<option value="haiku">Haiku</option>
 							</select>
-							<svg class="w-3 h-3 absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
-							</svg>
 						</div>
 
 						<!-- Permission Mode Selector -->
@@ -2253,18 +2250,15 @@
 										tabs.setTabPermissionModeOverride(tabId, newValue);
 									}
 								}}
-								class="appearance-none bg-card border border-border rounded-lg pl-2.5 pr-7 py-1.5 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring cursor-pointer hover:bg-accent transition-colors {currentTab.permissionModeOverride ? 'border-primary bg-primary/10 font-medium' : ''}"
-								disabled={currentTab.isStreaming || !!currentTab.sessionId}
-								title={currentTab.sessionId ? 'Mode locked for this session' : 'Select permission mode'}
+								class="bg-card border border-border rounded-lg px-2.5 py-1.5 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring cursor-pointer hover:bg-accent transition-colors {currentTab.permissionModeOverride ? 'border-primary bg-primary/10 font-medium' : ''}"
+								disabled={currentTab.isStreaming}
+								title="Select permission mode for next message"
 							>
 								<option value="default">Ask</option>
 								<option value="acceptEdits">Auto-Accept</option>
 								<option value="plan">Plan</option>
 								<option value="bypassPermissions">Bypass</option>
 							</select>
-							<svg class="w-3 h-3 absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
-							</svg>
 						</div>
 
 						<!-- Reset to defaults button (only show if any override is set) -->
@@ -2277,22 +2271,13 @@
 								}}
 								class="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1 px-1.5 py-1 rounded hover:bg-accent"
 								title="Reset to profile defaults"
-								disabled={currentTab.isStreaming || !!currentTab.sessionId}
+								disabled={currentTab.isStreaming}
 							>
 								<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
 								</svg>
 								<span class="hidden sm:inline">Reset</span>
 							</button>
-						{/if}
-
-						<!-- Lock indicator for existing sessions -->
-						{#if currentTab.sessionId}
-							<span class="text-xs text-muted-foreground flex items-center gap-1" title="Settings locked for this session">
-								<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-								</svg>
-							</span>
 						{/if}
 					</div>
 					{/if}
