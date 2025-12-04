@@ -160,6 +160,12 @@ async def chat_websocket(
         message_id = str(uuid.uuid4())
         stream_started = False
 
+        # Unregister this device from SyncEngine while streaming
+        # This prevents duplicate events (we get direct events via send_json)
+        # If the device disconnects and reconnects, it will re-register and get sync events
+        await sync_engine.unregister_device(device_id, session_id)
+        logger.info(f"Unregistered device {device_id} during streaming to prevent duplicates")
+
         try:
             logger.info(f"Starting query for session {session_id}, profile={profile_id}, project={project_id}, overrides={overrides}")
             await send_json({"type": "start", "session_id": session_id, "message_id": message_id})
@@ -180,15 +186,19 @@ async def chat_websocket(
 
                 # Broadcast to other devices via SyncEngine
                 # Start streaming on first content event
+                # Note: We pass source_device_id=None to NOT exclude any device.
+                # The source device gets direct events via send_json(), but if it
+                # disconnects and reconnects, its NEW websocket should receive sync events.
+                # The frontend handles any potential duplication.
                 if not stream_started and event_type in ('stream_start', 'stream_delta', 'chunk', 'tool_use'):
                     await sync_engine.broadcast_stream_start(
                         session_id=session_id,
                         message_id=message_id,
-                        source_device_id=device_id
+                        source_device_id=None  # Don't exclude - let all registered devices receive
                     )
                     stream_started = True
 
-                # Broadcast stream chunks
+                # Broadcast stream chunks (source_device_id=None to not exclude any device)
                 if event_type == 'stream_delta':
                     # Real-time streaming delta
                     delta_type = event.get('delta_type', 'text')
@@ -202,7 +212,7 @@ async def chat_websocket(
                         message_id=message_id,
                         chunk_type='text',
                         chunk_data=chunk_data,
-                        source_device_id=device_id
+                        source_device_id=None
                     )
                 elif event_type == 'chunk':
                     # Legacy chunk event (when include_partial_messages=False)
@@ -214,7 +224,7 @@ async def chat_websocket(
                         message_id=message_id,
                         chunk_type='text',
                         chunk_data=chunk_data,
-                        source_device_id=device_id
+                        source_device_id=None
                     )
                 elif event_type == 'tool_use':
                     # Tool use event
@@ -229,7 +239,7 @@ async def chat_websocket(
                         message_id=message_id,
                         chunk_type='tool_use',
                         chunk_data=chunk_data,
-                        source_device_id=device_id
+                        source_device_id=None
                     )
                 elif event_type == 'tool_result':
                     # Tool result event
@@ -242,7 +252,7 @@ async def chat_websocket(
                         message_id=message_id,
                         chunk_type='tool_result',
                         chunk_data=chunk_data,
-                        source_device_id=device_id
+                        source_device_id=None
                     )
                 elif event_type == 'done':
                     # Stream completed - broadcast end
@@ -252,7 +262,7 @@ async def chat_websocket(
                             message_id=message_id,
                             metadata=event.get('metadata', {}),
                             interrupted=False,
-                            source_device_id=device_id
+                            source_device_id=None
                         )
 
             logger.info(f"Query completed for session {session_id}")
@@ -267,7 +277,7 @@ async def chat_websocket(
                     message_id=message_id,
                     metadata={},
                     interrupted=True,
-                    source_device_id=device_id
+                    source_device_id=None
                 )
 
         except Exception as e:
@@ -280,10 +290,15 @@ async def chat_websocket(
                     message_id=message_id,
                     metadata={"error": str(e)},
                     interrupted=True,
-                    source_device_id=device_id
+                    source_device_id=None
                 )
 
         finally:
+            # Re-register device with SyncEngine now that streaming is complete
+            # This allows the device to receive sync events for future activity
+            await sync_engine.register_device(device_id, session_id, websocket)
+            logger.info(f"Re-registered device {device_id} after streaming complete")
+
             # Clean up task reference
             if session_id in _active_chat_sessions:
                 del _active_chat_sessions[session_id]
