@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount, onDestroy, tick } from 'svelte';
 	import { goto } from '$app/navigation';
-	import { auth, username, claudeAuthenticated, isAuthenticated, isAdmin } from '$lib/stores/auth';
+	import { auth, username, claudeAuthenticated, isAuthenticated, isAdmin, apiUser } from '$lib/stores/auth';
 	import {
 		tabs,
 		allTabs,
@@ -366,16 +366,31 @@
 		}
 	}
 
+	// Auto-set profile and project for API users based on their API key restrictions
+	$: if ($apiUser && $activeTabId && $activeTab) {
+		// If API user has a locked profile and current tab doesn't have it set
+		if ($apiUser.profile_id && $activeTab.profile !== $apiUser.profile_id) {
+			tabs.setTabProfile($activeTabId, $apiUser.profile_id);
+		}
+		// If API user has a locked project and current tab doesn't have it set
+		if ($apiUser.project_id && $activeTab.project !== $apiUser.project_id) {
+			tabs.setTabProject($activeTabId, $apiUser.project_id);
+		}
+	}
+
 	async function handleSubmit(tabId: string) {
 		const prompt = tabInputs[tabId] || '';
 		if (!prompt.trim() || !$activeTab || $activeTab.isStreaming) return;
 
-		// Require profile and project to be selected before sending messages
-		if (!$activeTab.profile) {
+		// API users use their API key restrictions - skip profile/project validation if they have restrictions
+		const isApiUserWithRestrictions = $apiUser && ($apiUser.profile_id || $apiUser.project_id);
+
+		// Require profile and project to be selected before sending messages (unless API user with restrictions)
+		if (!$activeTab.profile && !($apiUser?.profile_id)) {
 			tabs.setTabError(tabId, 'Please select a profile before starting a chat');
 			return;
 		}
-		if (!$activeTab.project) {
+		if (!$activeTab.project && !($apiUser?.project_id)) {
 			tabs.setTabError(tabId, 'Please select a project before starting a chat');
 			return;
 		}
@@ -1015,31 +1030,35 @@
 					<span class="absolute -top-1 -right-1 w-4 h-4 bg-primary text-primary-foreground text-[10px] font-bold rounded-full flex items-center justify-center">{$allTabs.length}</span>
 				{/if}
 			</button>
-			<button on:click={() => toggleSidebarSection('projects')} class="w-10 h-10 rounded-lg flex items-center justify-center transition-colors {activeSidebarSection === 'projects' ? 'bg-primary text-primary-foreground' : 'hover:bg-accent text-muted-foreground hover:text-foreground'}" title="Projects">
-				<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
-				</svg>
-			</button>
-			<button on:click={() => toggleSidebarSection('profiles')} class="w-10 h-10 rounded-lg flex items-center justify-center transition-colors {activeSidebarSection === 'profiles' ? 'bg-primary text-primary-foreground' : 'hover:bg-accent text-muted-foreground hover:text-foreground'}" title="Profiles">
-				<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-				</svg>
-			</button>
-			<button on:click={() => toggleSidebarSection('subagents')} class="w-10 h-10 rounded-lg flex items-center justify-center transition-colors {activeSidebarSection === 'subagents' ? 'bg-primary text-primary-foreground' : 'hover:bg-accent text-muted-foreground hover:text-foreground'}" title="Subagents">
-				<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-				</svg>
-			</button>
+			{#if $isAdmin}
+				<button on:click={() => toggleSidebarSection('projects')} class="w-10 h-10 rounded-lg flex items-center justify-center transition-colors {activeSidebarSection === 'projects' ? 'bg-primary text-primary-foreground' : 'hover:bg-accent text-muted-foreground hover:text-foreground'}" title="Projects">
+					<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+					</svg>
+				</button>
+				<button on:click={() => toggleSidebarSection('profiles')} class="w-10 h-10 rounded-lg flex items-center justify-center transition-colors {activeSidebarSection === 'profiles' ? 'bg-primary text-primary-foreground' : 'hover:bg-accent text-muted-foreground hover:text-foreground'}" title="Profiles">
+					<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+					</svg>
+				</button>
+				<button on:click={() => toggleSidebarSection('subagents')} class="w-10 h-10 rounded-lg flex items-center justify-center transition-colors {activeSidebarSection === 'subagents' ? 'bg-primary text-primary-foreground' : 'hover:bg-accent text-muted-foreground hover:text-foreground'}" title="Subagents">
+					<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+					</svg>
+				</button>
+			{/if}
 		</div>
 		<div class="mt-auto flex flex-col items-center pb-3 gap-1">
-			<a href="/settings" class="w-10 h-10 rounded-lg flex items-center justify-center transition-colors hover:bg-accent text-muted-foreground hover:text-foreground" title="Settings">
-				<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-				</svg>
-			</a>
-			<button on:click={handleLogout} class="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center hover:bg-primary/30 transition-colors" title="Logout ({$username})">
-				<span class="text-sm font-medium text-primary">{$username?.[0]?.toUpperCase() || 'U'}</span>
+			{#if $isAdmin}
+				<a href="/settings" class="w-10 h-10 rounded-lg flex items-center justify-center transition-colors hover:bg-accent text-muted-foreground hover:text-foreground" title="Settings">
+					<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+					</svg>
+				</a>
+			{/if}
+			<button on:click={handleLogout} class="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center hover:bg-primary/30 transition-colors" title="Logout ({$apiUser ? $apiUser.name : $username})">
+				<span class="text-sm font-medium text-primary">{($apiUser?.name || $username)?.[0]?.toUpperCase() || 'U'}</span>
 			</button>
 		</div>
 	</nav>
@@ -1809,19 +1828,21 @@
 					<span class="absolute top-1 right-2 w-4 h-4 bg-primary text-primary-foreground text-[10px] font-bold rounded-full flex items-center justify-center">{$allTabs.length}</span>
 				{/if}
 			</button>
-			<button on:click={() => showToolsMenu = !showToolsMenu} class="relative flex flex-col items-center justify-center w-16 h-full text-muted-foreground hover:text-foreground transition-colors">
-				<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
-				</svg>
-				<span class="text-xs mt-0.5">Tools</span>
-			</button>
-			<a href="/settings" class="flex flex-col items-center justify-center w-16 h-full text-muted-foreground hover:text-foreground transition-colors">
-				<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-				</svg>
-				<span class="text-xs mt-0.5">Settings</span>
-			</a>
+			{#if $isAdmin}
+				<button on:click={() => showToolsMenu = !showToolsMenu} class="relative flex flex-col items-center justify-center w-16 h-full text-muted-foreground hover:text-foreground transition-colors">
+					<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
+					</svg>
+					<span class="text-xs mt-0.5">Tools</span>
+				</button>
+				<a href="/settings" class="flex flex-col items-center justify-center w-16 h-full text-muted-foreground hover:text-foreground transition-colors">
+					<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+					</svg>
+					<span class="text-xs mt-0.5">Settings</span>
+				</a>
+			{/if}
 		</div>
 	</nav>
 
@@ -1840,95 +1861,121 @@
 				</button>
 
 				<!-- Profile Selector (clickable text style with dropdown) -->
-				<div class="relative group">
-					<button
-						class="flex items-center gap-1 px-2 py-1 text-sm text-foreground hover:bg-accent rounded-md transition-colors"
-					>
-						<svg class="w-4 h-4 {currentTab.profile ? 'text-muted-foreground' : 'text-amber-500'}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+				{#if $apiUser?.profile_id}
+					<!-- API user with locked profile - show as locked indicator -->
+					<div class="flex items-center gap-1 px-2 py-1 text-sm text-foreground opacity-75">
+						<svg class="w-4 h-4 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
 						</svg>
-						<span class="hidden sm:inline max-w-[120px] truncate {!currentTab.profile ? 'text-amber-500' : ''}">{$profiles.find((p) => p.id === currentTab.profile)?.name || 'Select Profile'}</span>
-						<svg class="w-3 h-3 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+						<span class="hidden sm:inline max-w-[120px] truncate">{$profiles.find((p) => p.id === $apiUser.profile_id)?.name || $apiUser.profile_id}</span>
+						<svg class="w-3 h-3 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24" title="Profile locked by API key">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
 						</svg>
-					</button>
-					<!-- Profile dropdown -->
-					<div class="absolute left-0 top-full mt-1 w-48 bg-card border border-border rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
-						<div class="py-1">
-							{#if $profiles.length === 0}
-								<p class="px-3 py-2 text-sm text-muted-foreground">No profiles yet</p>
-							{:else}
-								{#each $profiles as profile}
-									<button
-										on:click={() => setTabProfile(tabId, profile.id)}
-										class="w-full px-3 py-2 text-left text-sm hover:bg-accent transition-colors {currentTab.profile === profile.id ? 'text-primary' : 'text-foreground'}"
-									>
-										{profile.name}
-									</button>
-								{/each}
-							{/if}
-							<div class="border-t border-border my-1"></div>
-							<button
-								on:click={() => (showProfileModal = true)}
-								class="w-full px-3 py-2 text-left text-sm text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-							>
-								{$profiles.length === 0 ? 'Create Profile...' : 'Manage Profiles...'}
-							</button>
-						</div>
 					</div>
-				</div>
-
-				<!-- Breadcrumb separator -->
-				<span class="text-muted-foreground/50 mx-1 hidden sm:inline">/</span>
-
-				<!-- Project Selector (locked when session exists) -->
-				<div class="relative group">
-					<button
-						class="flex items-center gap-1 px-2 py-1 text-sm text-foreground {currentTab.sessionId ? 'cursor-default opacity-75' : 'hover:bg-accent'} rounded-md transition-colors"
-						title={currentTab.sessionId ? 'Project is locked for this chat' : 'Select project'}
-					>
-						<svg class="w-4 h-4 {currentTab.project ? 'text-muted-foreground' : 'text-amber-500'}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
-						</svg>
-						<span class="hidden sm:inline max-w-[120px] truncate {!currentTab.project ? 'text-amber-500' : ''}">{$projects.find((p) => p.id === currentTab.project)?.name || 'Select Project'}</span>
-						{#if currentTab.sessionId}
-							<!-- Lock icon when session exists -->
-							<svg class="w-3 h-3 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+				{:else}
+					<div class="relative group">
+						<button
+							class="flex items-center gap-1 px-2 py-1 text-sm text-foreground hover:bg-accent rounded-md transition-colors"
+						>
+							<svg class="w-4 h-4 {currentTab.profile ? 'text-muted-foreground' : 'text-amber-500'}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
 							</svg>
-						{:else}
+							<span class="hidden sm:inline max-w-[120px] truncate {!currentTab.profile ? 'text-amber-500' : ''}">{$profiles.find((p) => p.id === currentTab.profile)?.name || 'Select Profile'}</span>
 							<svg class="w-3 h-3 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
 							</svg>
-						{/if}
-					</button>
-					<!-- Project dropdown (only show when no session) -->
-					{#if !currentTab.sessionId}
+						</button>
+						<!-- Profile dropdown -->
 						<div class="absolute left-0 top-full mt-1 w-48 bg-card border border-border rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
 							<div class="py-1">
-								{#if $projects.length === 0}
-									<p class="px-3 py-2 text-sm text-muted-foreground">No projects yet</p>
+								{#if $profiles.length === 0}
+									<p class="px-3 py-2 text-sm text-muted-foreground">No profiles yet</p>
 								{:else}
-									{#each $projects as project}
+									{#each $profiles as profile}
 										<button
-											on:click={() => setTabProject(tabId, project.id)}
-											class="w-full px-3 py-2 text-left text-sm hover:bg-accent transition-colors {currentTab.project === project.id ? 'text-primary' : 'text-foreground'}"
+											on:click={() => setTabProfile(tabId, profile.id)}
+											class="w-full px-3 py-2 text-left text-sm hover:bg-accent transition-colors {currentTab.profile === profile.id ? 'text-primary' : 'text-foreground'}"
 										>
-											{project.name}
+											{profile.name}
 										</button>
 									{/each}
 								{/if}
 								<div class="border-t border-border my-1"></div>
 								<button
-									on:click={() => (showProjectModal = true)}
+									on:click={() => (showProfileModal = true)}
 									class="w-full px-3 py-2 text-left text-sm text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
 								>
-									{$projects.length === 0 ? 'Create Project...' : 'Manage Projects...'}
+									{$profiles.length === 0 ? 'Create Profile...' : 'Manage Profiles...'}
 								</button>
 							</div>
 						</div>
-					{/if}
-				</div>
+					</div>
+				{/if}
+
+				<!-- Breadcrumb separator -->
+				<span class="text-muted-foreground/50 mx-1 hidden sm:inline">/</span>
+
+				<!-- Project Selector (locked when session exists or for API users) -->
+				{#if $apiUser?.project_id}
+					<!-- API user with locked project - show as locked indicator -->
+					<div class="flex items-center gap-1 px-2 py-1 text-sm text-foreground opacity-75">
+						<svg class="w-4 h-4 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+						</svg>
+						<span class="hidden sm:inline max-w-[120px] truncate">{$projects.find((p) => p.id === $apiUser.project_id)?.name || $apiUser.project_id}</span>
+						<svg class="w-3 h-3 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24" title="Project locked by API key">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+						</svg>
+					</div>
+				{:else}
+					<div class="relative group">
+						<button
+							class="flex items-center gap-1 px-2 py-1 text-sm text-foreground {currentTab.sessionId ? 'cursor-default opacity-75' : 'hover:bg-accent'} rounded-md transition-colors"
+							title={currentTab.sessionId ? 'Project is locked for this chat' : 'Select project'}
+						>
+							<svg class="w-4 h-4 {currentTab.project ? 'text-muted-foreground' : 'text-amber-500'}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+							</svg>
+							<span class="hidden sm:inline max-w-[120px] truncate {!currentTab.project ? 'text-amber-500' : ''}">{$projects.find((p) => p.id === currentTab.project)?.name || 'Select Project'}</span>
+							{#if currentTab.sessionId}
+								<!-- Lock icon when session exists -->
+								<svg class="w-3 h-3 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+								</svg>
+							{:else}
+								<svg class="w-3 h-3 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+								</svg>
+							{/if}
+						</button>
+						<!-- Project dropdown (only show when no session) -->
+						{#if !currentTab.sessionId}
+							<div class="absolute left-0 top-full mt-1 w-48 bg-card border border-border rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
+								<div class="py-1">
+									{#if $projects.length === 0}
+										<p class="px-3 py-2 text-sm text-muted-foreground">No projects yet</p>
+									{:else}
+										{#each $projects as project}
+											<button
+												on:click={() => setTabProject(tabId, project.id)}
+												class="w-full px-3 py-2 text-left text-sm hover:bg-accent transition-colors {currentTab.project === project.id ? 'text-primary' : 'text-foreground'}"
+											>
+												{project.name}
+											</button>
+										{/each}
+									{/if}
+									<div class="border-t border-border my-1"></div>
+									<button
+										on:click={() => (showProjectModal = true)}
+										class="w-full px-3 py-2 text-left text-sm text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+									>
+										{$projects.length === 0 ? 'Create Project...' : 'Manage Projects...'}
+									</button>
+								</div>
+							</div>
+						{/if}
+					</div>
+				{/if}
 
 				<!-- Rewind Button (after breadcrumb, only when session is active) -->
 				{#if currentTab.sessionId}
