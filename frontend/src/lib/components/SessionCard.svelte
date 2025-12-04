@@ -59,9 +59,10 @@
 	}
 
 	function handleTouchEnd() {
-		// Delete if swiped past threshold
+		// Close or delete if swiped past threshold
 		if (directionLocked === 'horizontal' && currentSwipeX >= DELETE_THRESHOLD) {
-			dispatch('delete');
+			// Open tabs get closed, history items get deleted
+			dispatch(isOpen ? 'close' : 'delete');
 		}
 
 		// Reset
@@ -99,15 +100,27 @@
 </script>
 
 <div class="relative rounded-lg">
-	<!-- Delete indicator - sits behind the card -->
+	<!-- Swipe indicator - sits behind the card -->
 	{#if currentSwipeX > 0}
-		<div class="absolute inset-0 flex justify-end items-center rounded-lg overflow-hidden {isPastThreshold ? 'bg-destructive' : 'bg-destructive/50'}">
-			<div class="w-[100px] flex items-center justify-center">
-				<svg class="w-5 h-5 text-destructive-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-				</svg>
+		{#if isOpen}
+			<!-- Close indicator for open tabs (neutral color) -->
+			<div class="absolute inset-0 flex justify-end items-center rounded-lg overflow-hidden {isPastThreshold ? 'bg-muted-foreground' : 'bg-muted-foreground/50'}">
+				<div class="w-[100px] flex items-center justify-center">
+					<svg class="w-5 h-5 text-background" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+					</svg>
+				</div>
 			</div>
-		</div>
+		{:else}
+			<!-- Delete indicator for history items (red) -->
+			<div class="absolute inset-0 flex justify-end items-center rounded-lg overflow-hidden {isPastThreshold ? 'bg-destructive' : 'bg-destructive/50'}">
+				<div class="w-[100px] flex items-center justify-center">
+					<svg class="w-5 h-5 text-destructive-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+					</svg>
+				</div>
+			</div>
+		{/if}
 	{/if}
 
 	<!-- Main card content - slides to reveal delete indicator -->
