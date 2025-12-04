@@ -33,13 +33,26 @@ def require_claude_auth():
 @router.post("/query", response_model=QueryResponse)
 async def one_shot_query(
     request: QueryRequest,
+    http_request: Request,
     token: str = Depends(require_auth),
     _: None = Depends(require_claude_auth)
 ):
     """
     One-shot query - stateless, creates a new session each time.
     Best for simple queries that don't need conversation history.
+    When authenticated via API key, uses the API user's configured project and profile.
     """
+    # Get API user if authenticated via API key
+    api_user = get_api_user_from_request(http_request)
+
+    # Determine profile and project - API user config overrides request
+    if api_user:
+        profile_id = api_user.get("profile_id") or request.profile or "claude-code"
+        project_id = api_user.get("project_id") or request.project
+    else:
+        profile_id = request.profile or "claude-code"
+        project_id = request.project
+
     try:
         overrides = None
         if request.overrides:
@@ -47,8 +60,8 @@ async def one_shot_query(
 
         result = await execute_query(
             prompt=request.prompt,
-            profile_id=request.profile,
-            project_id=request.project,
+            profile_id=profile_id,
+            project_id=project_id,
             overrides=overrides
         )
 
@@ -74,12 +87,25 @@ async def one_shot_query(
 @router.post("/query/stream")
 async def stream_one_shot_query(
     request: QueryRequest,
+    http_request: Request,
     token: str = Depends(require_auth),
     _: None = Depends(require_claude_auth)
 ):
     """
     SSE streaming one-shot query.
+    When authenticated via API key, uses the API user's configured project and profile.
     """
+    # Get API user if authenticated via API key
+    api_user = get_api_user_from_request(http_request)
+
+    # Determine profile and project - API user config overrides request
+    if api_user:
+        profile_id = api_user.get("profile_id") or request.profile or "claude-code"
+        project_id = api_user.get("project_id") or request.project
+    else:
+        profile_id = request.profile or "claude-code"
+        project_id = request.project
+
     async def event_generator():
         try:
             overrides = None
@@ -88,8 +114,8 @@ async def stream_one_shot_query(
 
             async for event in stream_query(
                 prompt=request.prompt,
-                profile_id=request.profile,
-                project_id=request.project,
+                profile_id=profile_id,
+                project_id=project_id,
                 overrides=overrides
             ):
                 event_type = event.get("type", "message")
@@ -115,6 +141,7 @@ async def stream_one_shot_query(
 @router.post("/conversation", response_model=QueryResponse)
 async def conversation(
     request: ConversationRequest,
+    http_request: Request,
     token: str = Depends(require_auth),
     _: None = Depends(require_claude_auth)
 ):
@@ -122,7 +149,19 @@ async def conversation(
     Multi-turn conversation - maintains context across messages.
     If session_id is provided, continues that session.
     Otherwise creates a new session.
+    When authenticated via API key, uses the API user's configured project and profile.
     """
+    # Get API user if authenticated via API key
+    api_user = get_api_user_from_request(http_request)
+
+    # Determine profile and project - API user config overrides request
+    if api_user:
+        profile_id = api_user.get("profile_id") or request.profile or "claude-code"
+        project_id = api_user.get("project_id") or request.project
+    else:
+        profile_id = request.profile or "claude-code"
+        project_id = request.project
+
     try:
         overrides = None
         if request.overrides:
@@ -130,8 +169,8 @@ async def conversation(
 
         result = await execute_query(
             prompt=request.prompt,
-            profile_id=request.profile or "claude-code",
-            project_id=request.project,
+            profile_id=profile_id,
+            project_id=project_id,
             overrides=overrides,
             session_id=request.session_id
         )
