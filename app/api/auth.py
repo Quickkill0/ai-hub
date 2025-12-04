@@ -201,6 +201,41 @@ def get_api_user_from_request(request: Request) -> Optional[dict]:
     return getattr(request.state, "api_user", None)
 
 
+def require_api_key(request: Request) -> dict:
+    """
+    Dependency that requires API key authentication only.
+    Use this for /api/v1/ endpoints that should only be accessible via API keys,
+    not admin sessions. Returns the API user dict.
+    """
+    # First check for Bearer token (direct API key)
+    api_key = get_api_key(request)
+    if api_key:
+        key_hash = hash_api_key(api_key)
+        api_user = db.get_api_user_by_key_hash(key_hash)
+        if api_user and api_user.get("is_active", True):
+            db.update_api_user_last_used(api_user["id"])
+            request.state.is_admin = False
+            request.state.api_user = api_user
+            return api_user
+
+    # Then check for API key web session (cookie-based API key login)
+    token = get_session_token(request)
+    if token:
+        api_key_session = db.get_api_key_session(token)
+        if api_key_session:
+            api_user = db.get_api_user(api_key_session["api_user_id"])
+            if api_user and api_user.get("is_active", True):
+                db.update_api_user_last_used(api_user["id"])
+                request.state.is_admin = False
+                request.state.api_user = api_user
+                return api_user
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="API key required. Use Bearer token or login with API key."
+    )
+
+
 def is_admin_request(request: Request) -> bool:
     """Check if the current request is from an admin user"""
     return getattr(request.state, "is_admin", False)
