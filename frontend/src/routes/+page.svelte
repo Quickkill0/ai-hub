@@ -210,6 +210,10 @@
 	// Mobile tools menu state
 	let showToolsMenu = false;
 
+	// Override popup menu state
+	let showModelPopup = false;
+	let showModePopup = false;
+
 	// Command autocomplete state
 	let showCommandAutocomplete: Record<string, boolean> = {};
 	let commandAutocompleteRefs: Record<string, CommandAutocomplete> = {};
@@ -2213,52 +2217,95 @@
 					{@const profilePermissionMode = currentProfile?.config?.permission_mode || 'default'}
 					{@const effectiveModel = currentTab.modelOverride || profileModel}
 					{@const effectiveMode = currentTab.permissionModeOverride || profilePermissionMode}
+					{@const modelLabels = { sonnet: 'Sonnet', opus: 'Opus', haiku: 'Haiku' } as Record<string, string>}
+					{@const modeLabels = { default: 'Ask', acceptEdits: 'Auto-Accept', plan: 'Plan', bypassPermissions: 'Bypass' } as Record<string, string>}
 					<div class="mb-2 flex flex-wrap items-center justify-center gap-2">
-						<!-- Model Selector -->
+						<!-- Model Selector (Popup) -->
 						<div class="relative inline-block">
-							<select
-								value={effectiveModel}
-								on:change={(e) => {
-									const newValue = e.currentTarget.value;
-									// If selecting the profile default, clear the override
-									if (newValue === profileModel) {
-										tabs.setTabModelOverride(tabId, null);
-									} else {
-										tabs.setTabModelOverride(tabId, newValue);
-									}
-								}}
-								class="bg-card border border-border rounded-lg px-2.5 py-1.5 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring cursor-pointer hover:bg-accent transition-colors {currentTab.modelOverride ? 'border-primary bg-primary/10 font-medium' : ''}"
+							<button
+								type="button"
+								on:click={() => { showModelPopup = !showModelPopup; showModePopup = false; }}
+								class="flex items-center gap-1.5 bg-card border border-border rounded-lg px-2.5 py-1.5 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring cursor-pointer hover:bg-accent transition-colors {currentTab.modelOverride ? 'border-primary bg-primary/10 font-medium' : ''}"
 								disabled={currentTab.isStreaming}
 								title="Select model for next message"
 							>
-								<option value="sonnet">Sonnet</option>
-								<option value="opus">Opus</option>
-								<option value="haiku">Haiku</option>
-							</select>
+								<span>{modelLabels[effectiveModel] || effectiveModel}</span>
+								<svg class="w-3 h-3 text-muted-foreground transition-transform {showModelPopup ? 'rotate-180' : ''}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7" />
+								</svg>
+							</button>
+							<!-- Popup Menu (appears above) -->
+							{#if showModelPopup}
+								<!-- Invisible backdrop to catch outside clicks -->
+								<div class="fixed inset-0 z-40" on:click={() => showModelPopup = false}></div>
+								<div class="absolute bottom-full left-0 mb-1 bg-card border border-border rounded-lg shadow-lg overflow-hidden z-50 min-w-[100px]">
+									{#each [['sonnet', 'Sonnet'], ['opus', 'Opus'], ['haiku', 'Haiku']] as [value, label]}
+										<button
+											type="button"
+											on:click={() => {
+												if (value === profileModel) {
+													tabs.setTabModelOverride(tabId, null);
+												} else {
+													tabs.setTabModelOverride(tabId, value);
+												}
+												showModelPopup = false;
+											}}
+											class="w-full px-3 py-2 text-left text-xs hover:bg-accent transition-colors flex items-center justify-between gap-2 {effectiveModel === value ? 'bg-accent text-foreground font-medium' : 'text-muted-foreground'}"
+										>
+											<span>{label}</span>
+											{#if effectiveModel === value}
+												<svg class="w-3 h-3 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+													<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+												</svg>
+											{/if}
+										</button>
+									{/each}
+								</div>
+							{/if}
 						</div>
 
-						<!-- Permission Mode Selector -->
+						<!-- Permission Mode Selector (Popup) -->
 						<div class="relative inline-block">
-							<select
-								value={effectiveMode}
-								on:change={(e) => {
-									const newValue = e.currentTarget.value;
-									// If selecting the profile default, clear the override
-									if (newValue === profilePermissionMode) {
-										tabs.setTabPermissionModeOverride(tabId, null);
-									} else {
-										tabs.setTabPermissionModeOverride(tabId, newValue);
-									}
-								}}
-								class="bg-card border border-border rounded-lg px-2.5 py-1.5 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring cursor-pointer hover:bg-accent transition-colors {currentTab.permissionModeOverride ? 'border-primary bg-primary/10 font-medium' : ''}"
+							<button
+								type="button"
+								on:click={() => { showModePopup = !showModePopup; showModelPopup = false; }}
+								class="flex items-center gap-1.5 bg-card border border-border rounded-lg px-2.5 py-1.5 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring cursor-pointer hover:bg-accent transition-colors {currentTab.permissionModeOverride ? 'border-primary bg-primary/10 font-medium' : ''}"
 								disabled={currentTab.isStreaming}
 								title="Select permission mode for next message"
 							>
-								<option value="default">Ask</option>
-								<option value="acceptEdits">Auto-Accept</option>
-								<option value="plan">Plan</option>
-								<option value="bypassPermissions">Bypass</option>
-							</select>
+								<span>{modeLabels[effectiveMode] || effectiveMode}</span>
+								<svg class="w-3 h-3 text-muted-foreground transition-transform {showModePopup ? 'rotate-180' : ''}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7" />
+								</svg>
+							</button>
+							<!-- Popup Menu (appears above) -->
+							{#if showModePopup}
+								<!-- Invisible backdrop to catch outside clicks -->
+								<div class="fixed inset-0 z-40" on:click={() => showModePopup = false}></div>
+								<div class="absolute bottom-full left-0 mb-1 bg-card border border-border rounded-lg shadow-lg overflow-hidden z-50 min-w-[120px]">
+									{#each [['default', 'Ask'], ['acceptEdits', 'Auto-Accept'], ['plan', 'Plan'], ['bypassPermissions', 'Bypass']] as [value, label]}
+										<button
+											type="button"
+											on:click={() => {
+												if (value === profilePermissionMode) {
+													tabs.setTabPermissionModeOverride(tabId, null);
+												} else {
+													tabs.setTabPermissionModeOverride(tabId, value);
+												}
+												showModePopup = false;
+											}}
+											class="w-full px-3 py-2 text-left text-xs hover:bg-accent transition-colors flex items-center justify-between gap-2 {effectiveMode === value ? 'bg-accent text-foreground font-medium' : 'text-muted-foreground'}"
+										>
+											<span>{label}</span>
+											{#if effectiveMode === value}
+												<svg class="w-3 h-3 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+													<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+												</svg>
+											{/if}
+										</button>
+									{/each}
+								</div>
+							{/if}
 						</div>
 
 						<!-- Reset to defaults button (only show if any override is set) -->
