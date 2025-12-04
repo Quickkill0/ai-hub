@@ -2207,51 +2207,67 @@
 					<input type="file" bind:this={fileInput} on:change={handleFileUpload} class="hidden" multiple />
 
 					<!-- Session Overrides (Model & Permission Mode) -->
-					<div class="mb-2 flex flex-wrap items-center gap-2">
-						<!-- Model Override -->
-						<div class="flex items-center gap-1.5">
-							<div class="relative">
-								<select
-									value={currentTab.modelOverride || ''}
-									on:change={(e) => tabs.setTabModelOverride(tabId, e.currentTarget.value || null)}
-									class="appearance-none bg-card border border-border rounded-lg pl-2 pr-7 py-1.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer hover:bg-accent transition-colors {currentTab.modelOverride ? 'border-primary/50 bg-primary/5' : ''}"
-									disabled={currentTab.isStreaming || !!currentTab.sessionId}
-									title={currentTab.sessionId ? 'Cannot change model for existing session' : 'Override model for this session'}
-								>
-									<option value="">Model: Default</option>
-									<option value="sonnet">Sonnet</option>
-									<option value="opus">Opus</option>
-									<option value="haiku">Haiku</option>
-								</select>
-								<svg class="w-3.5 h-3.5 absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
-								</svg>
-							</div>
+					{#if currentTab}
+					{@const currentProfile = $profiles.find(p => p.id === currentTab.profile)}
+					{@const profileModel = currentProfile?.config?.model || 'sonnet'}
+					{@const profilePermissionMode = currentProfile?.config?.permission_mode || 'default'}
+					{@const effectiveModel = currentTab.modelOverride || profileModel}
+					{@const effectiveMode = currentTab.permissionModeOverride || profilePermissionMode}
+					<div class="mb-2 flex flex-wrap items-center justify-center gap-2">
+						<!-- Model Selector -->
+						<div class="relative inline-block">
+							<select
+								value={effectiveModel}
+								on:change={(e) => {
+									const newValue = e.currentTarget.value;
+									// If selecting the profile default, clear the override
+									if (newValue === profileModel) {
+										tabs.setTabModelOverride(tabId, null);
+									} else {
+										tabs.setTabModelOverride(tabId, newValue);
+									}
+								}}
+								class="appearance-none bg-card border border-border rounded-lg pl-2.5 pr-7 py-1.5 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring cursor-pointer hover:bg-accent transition-colors {currentTab.modelOverride ? 'border-primary bg-primary/10 font-medium' : ''}"
+								disabled={currentTab.isStreaming || !!currentTab.sessionId}
+								title={currentTab.sessionId ? 'Model locked for this session' : 'Select model'}
+							>
+								<option value="sonnet">Sonnet</option>
+								<option value="opus">Opus</option>
+								<option value="haiku">Haiku</option>
+							</select>
+							<svg class="w-3 h-3 absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+							</svg>
 						</div>
 
-						<!-- Permission Mode Override -->
-						<div class="flex items-center gap-1.5">
-							<div class="relative">
-								<select
-									value={currentTab.permissionModeOverride || ''}
-									on:change={(e) => tabs.setTabPermissionModeOverride(tabId, e.currentTarget.value || null)}
-									class="appearance-none bg-card border border-border rounded-lg pl-2 pr-7 py-1.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer hover:bg-accent transition-colors {currentTab.permissionModeOverride ? 'border-primary/50 bg-primary/5' : ''}"
-									disabled={currentTab.isStreaming || !!currentTab.sessionId}
-									title={currentTab.sessionId ? 'Cannot change mode for existing session' : 'Override permission mode for this session'}
-								>
-									<option value="">Mode: Default</option>
-									<option value="default">Ask</option>
-									<option value="acceptEdits">Auto-Accept</option>
-									<option value="plan">Plan Mode</option>
-									<option value="bypassPermissions">Bypass</option>
-								</select>
-								<svg class="w-3.5 h-3.5 absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
-								</svg>
-							</div>
+						<!-- Permission Mode Selector -->
+						<div class="relative inline-block">
+							<select
+								value={effectiveMode}
+								on:change={(e) => {
+									const newValue = e.currentTarget.value;
+									// If selecting the profile default, clear the override
+									if (newValue === profilePermissionMode) {
+										tabs.setTabPermissionModeOverride(tabId, null);
+									} else {
+										tabs.setTabPermissionModeOverride(tabId, newValue);
+									}
+								}}
+								class="appearance-none bg-card border border-border rounded-lg pl-2.5 pr-7 py-1.5 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring cursor-pointer hover:bg-accent transition-colors {currentTab.permissionModeOverride ? 'border-primary bg-primary/10 font-medium' : ''}"
+								disabled={currentTab.isStreaming || !!currentTab.sessionId}
+								title={currentTab.sessionId ? 'Mode locked for this session' : 'Select permission mode'}
+							>
+								<option value="default">Ask</option>
+								<option value="acceptEdits">Auto-Accept</option>
+								<option value="plan">Plan</option>
+								<option value="bypassPermissions">Bypass</option>
+							</select>
+							<svg class="w-3 h-3 absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+							</svg>
 						</div>
 
-						<!-- Clear overrides button (only show if any override is set) -->
+						<!-- Reset to defaults button (only show if any override is set) -->
 						{#if currentTab.modelOverride || currentTab.permissionModeOverride}
 							<button
 								type="button"
@@ -2259,27 +2275,27 @@
 									tabs.setTabModelOverride(tabId, null);
 									tabs.setTabPermissionModeOverride(tabId, null);
 								}}
-								class="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1"
-								title="Clear all overrides"
+								class="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1 px-1.5 py-1 rounded hover:bg-accent"
+								title="Reset to profile defaults"
 								disabled={currentTab.isStreaming || !!currentTab.sessionId}
 							>
 								<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
 								</svg>
-								<span class="hidden sm:inline">Clear</span>
+								<span class="hidden sm:inline">Reset</span>
 							</button>
 						{/if}
 
-						<!-- Info about locked overrides for existing sessions -->
-						{#if currentTab.sessionId && (currentTab.modelOverride || currentTab.permissionModeOverride)}
-							<span class="text-xs text-muted-foreground flex items-center gap-1">
+						<!-- Lock indicator for existing sessions -->
+						{#if currentTab.sessionId}
+							<span class="text-xs text-muted-foreground flex items-center gap-1" title="Settings locked for this session">
 								<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
 								</svg>
-								<span class="hidden sm:inline">Locked for session</span>
 							</span>
 						{/if}
 					</div>
+					{/if}
 
 					<!-- Input Form -->
 					<form on:submit|preventDefault={() => handleSubmit(tabId)} class="flex items-center gap-2">
