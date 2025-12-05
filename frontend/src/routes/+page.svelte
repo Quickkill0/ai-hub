@@ -1012,7 +1012,7 @@
 	<title>AI Hub</title>
 </svelte:head>
 
-<div class="h-screen flex bg-background text-foreground">
+<div class="h-dvh flex bg-background text-foreground">
 	<!-- Icon Rail (Desktop) - 48px wide -->
 	<nav class="hidden lg:flex flex-col w-12 bg-card border-r border-border z-50 flex-shrink-0">
 		<div class="flex flex-col items-center pt-3 gap-1">
@@ -1847,7 +1847,7 @@
 	</nav>
 
 	<!-- Main Content -->
-	<main class="flex-1 flex flex-col min-w-0 bg-background">
+	<main class="flex-1 flex flex-col min-w-0 bg-background pb-14 lg:pb-0">
 		<!-- Context Bar -->
 		{#if $activeTab}
 			{@const currentTab = $activeTab}
@@ -2106,7 +2106,7 @@
 			>
 				{#if currentTab.messages.length === 0}
 					<!-- Empty State -->
-					<div class="h-full flex items-center justify-center pb-14 lg:pb-0">
+					<div class="h-full flex items-center justify-center">
 						<div class="text-center max-w-md px-6">
 							<div class="w-16 h-16 mx-auto mb-6 rounded-2xl bg-primary/10 flex items-center justify-center shadow-s">
 								<svg class="w-8 h-8 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -2338,7 +2338,7 @@
 			</div>
 
 			<!-- Input Area -->
-			<div class="border-t border-border/50 bg-background/80 backdrop-blur-sm p-3 sm:p-4 pb-[4.5rem] lg:pb-4">
+			<div class="border-t border-border/50 bg-background/80 backdrop-blur-sm p-3 sm:p-4">
 				<div class="max-w-5xl mx-auto">
 					<!-- Hidden file input -->
 					<input type="file" bind:this={fileInput} on:change={handleFileUpload} class="hidden" multiple />
