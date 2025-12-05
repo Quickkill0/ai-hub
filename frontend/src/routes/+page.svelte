@@ -2146,8 +2146,8 @@
 					<!-- Messages -->
 					<div class="max-w-5xl mx-auto px-4 sm:px-8 py-4 space-y-4">
 						<!-- Todo List - Shows task progress when tasks exist -->
-						{#if currentTab.todos && currentTab.todos.length > 0}
-							<TodoList todos={currentTab.todos} />
+						{#if $activeTab?.todos && $activeTab.todos.length > 0}
+							<TodoList todos={$activeTab.todos} />
 						{/if}
 
 						{#each currentTab.messages as message}
