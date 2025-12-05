@@ -2148,6 +2148,10 @@
 						<!-- Todo List - Shows task progress when tasks exist -->
 						{#if $activeTab?.todos && $activeTab.todos.length > 0}
 							<TodoList todos={$activeTab.todos} />
+						{:else}
+							<div class="text-xs text-muted-foreground p-2 bg-muted/20 rounded">
+								Debug: todos = {JSON.stringify($activeTab?.todos || 'undefined')}
+							</div>
 						{/if}
 
 						{#each currentTab.messages as message}
