@@ -1969,13 +1969,12 @@ function createTabsStore() {
 						activeTabId: persistedState.activeTabId || restoredTabs[0]?.id || null
 					}));
 
-					// Connect WebSockets and load session messages for each tab
+					// Connect WebSockets for each tab
+					// Note: We rely on WebSocket load_session (sent in ws.onopen) to load messages
+					// This ensures we get streaming state and buffer for active sessions
+					// DO NOT call loadSessionInTab here - it uses REST which doesn't have streaming info
 					for (const tab of restoredTabs) {
 						connectTab(tab.id);
-						// Load session messages if tab has a session
-						if (tab.sessionId) {
-							this.loadSessionInTab(tab.id, tab.sessionId);
-						}
 					}
 
 					console.log('[Tabs] Restored', restoredTabs.length, 'tabs from server');
