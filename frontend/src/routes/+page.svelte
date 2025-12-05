@@ -2238,8 +2238,15 @@
 										{/if}
 									</div>
 								</div>
-							{:else if message.type === 'tool_use' && message.toolName !== 'TodoWrite'}
-								<!-- Tool Use with grouped Result - Expandable Card (hide TodoWrite since it shows in TodoList widget) -->
+							{:else if message.type === 'tool_use' && message.toolName === 'TodoWrite'}
+								<!-- TodoWrite - Render as TodoList component -->
+								{#if message.toolInput?.todos && Array.isArray(message.toolInput.todos)}
+									<div class="w-full">
+										<TodoList todos={message.toolInput.todos} />
+									</div>
+								{/if}
+							{:else if message.type === 'tool_use'}
+								<!-- Tool Use with grouped Result - Expandable Card -->
 								<div class="flex gap-3 w-full">
 									<div class="flex-shrink-0 w-8 h-8 rounded-full bg-yellow-500/10 flex items-center justify-center shadow-s">
 										<svg class="w-4 h-4 text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -2384,15 +2391,6 @@
 							requests={currentTab.pendingPermissions}
 							on:respond={(e) => handlePermissionRespond(tabId, e)}
 						/>
-					</div>
-				</div>
-			{/if}
-
-			<!-- Todo List - Shows task progress above input -->
-			{#if $activeTab?.todos && $activeTab.todos.length > 0}
-				<div class="border-t border-border/50 bg-background/80 backdrop-blur-sm px-3 sm:px-4 pt-3">
-					<div class="max-w-5xl mx-auto">
-						<TodoList todos={$activeTab.todos} />
 					</div>
 				</div>
 			{/if}
