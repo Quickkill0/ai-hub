@@ -36,6 +36,13 @@ export interface SubagentChildMessage {
 	timestamp?: string;
 }
 
+// Todo item for task tracking
+export interface TodoItem {
+	content: string;
+	status: 'pending' | 'in_progress' | 'completed';
+	activeForm: string; // Present continuous form shown when in_progress
+}
+
 export interface ChatMessage {
 	id: string;
 	role: 'user' | 'assistant' | 'system';
@@ -92,6 +99,8 @@ export interface ChatTab {
 	permissionModeOverride: string | null;  // null = use profile default
 	// Permission requests queue
 	pendingPermissions: PermissionRequestType[];
+	// Todo list for task tracking
+	todos: TodoItem[];
 }
 
 interface TabsState {
@@ -254,7 +263,8 @@ function createTabsStore() {
 			contextMax: 200000,
 			modelOverride: null,
 			permissionModeOverride: null,
-			pendingPermissions: []
+			pendingPermissions: [],
+			todos: []
 		}],
 		activeTabId: initialTabId,
 		profiles: [],
@@ -564,6 +574,7 @@ function createTabsStore() {
 							if (t.id !== tabId) return t;
 
 							const messages = [...t.messages];
+							let todos = t.todos;
 							const toolIdx = messages.findLastIndex(
 								m => m.type === 'tool_use' && m.streaming
 							);
@@ -576,6 +587,15 @@ function createTabsStore() {
 								let parsedInput = current.toolInput || {};
 								try {
 									parsedInput = JSON.parse(partialInput);
+
+									// Handle TodoWrite tool - update todos as they stream in
+									if (current.toolName === 'TodoWrite' && parsedInput?.todos && Array.isArray(parsedInput.todos)) {
+										todos = (parsedInput.todos as TodoItem[]).map(todo => ({
+											content: todo.content || '',
+											status: todo.status || 'pending',
+											activeForm: todo.activeForm || todo.content || ''
+										}));
+									}
 								} catch {
 									// Not valid JSON yet, keep accumulating
 								}
@@ -587,7 +607,7 @@ function createTabsStore() {
 								};
 							}
 
-							return { ...t, messages };
+							return { ...t, messages, todos };
 						})
 					}));
 				} else if (chunkType === 'tool_use') {
@@ -604,6 +624,17 @@ function createTabsStore() {
 							if (t.id !== tabId) return t;
 
 							let messages = [...t.messages];
+							let todos = t.todos;
+
+							// Handle TodoWrite tool - extract todos from input
+							if (toolName === 'TodoWrite' && toolInput?.todos && Array.isArray(toolInput.todos)) {
+								todos = (toolInput.todos as TodoItem[]).map(todo => ({
+									content: todo.content || '',
+									status: todo.status || 'pending',
+									activeForm: todo.activeForm || todo.content || ''
+								}));
+								console.log(`[Tab ${tabId}] TodoWrite: Updated todos`, todos);
+							}
 
 							// Check if this tool_use already exists (from history or buffer)
 							const existingToolIdx = messages.findIndex(
@@ -619,7 +650,7 @@ function createTabsStore() {
 									toolStatus: messages[existingToolIdx].toolStatus || 'running',
 									streaming: messages[existingToolIdx].toolStatus !== 'complete'
 								};
-								return { ...t, messages };
+								return { ...t, messages, todos };
 							}
 
 							// Handle current streaming text message - finalize it
@@ -647,7 +678,7 @@ function createTabsStore() {
 								streaming: true
 							});
 
-							return { ...t, messages };
+							return { ...t, messages, todos };
 						})
 					}));
 				} else if (chunkType === 'tool_result') {
@@ -1032,10 +1063,26 @@ function createTabsStore() {
 				// Also build a map of tool_results by tool_use_id for grouping
 				const toolResultMap: Map<string, { content: string; toolStatus: 'complete' | 'error' }> = new Map();
 
+				// Track latest todos from TodoWrite tool calls in history
+				let latestTodos: TodoItem[] = [];
+
 				// Pre-scan for tool_results to group them with tool_use
+				// Also extract todos from TodoWrite tool calls
 				for (const m of rawMessages) {
 					const msgType = m.type as MessageType | undefined;
 					const role = m.role as string;
+					const toolName = (m.toolName || m.tool_name) as string | undefined;
+					const toolInput = (m.toolInput || m.tool_input) as Record<string, unknown> | undefined;
+
+					// Extract todos from TodoWrite tool calls
+					if ((msgType === 'tool_use' || role === 'tool_use') && toolName === 'TodoWrite' && toolInput?.todos && Array.isArray(toolInput.todos)) {
+						latestTodos = (toolInput.todos as TodoItem[]).map(todo => ({
+							content: todo.content || '',
+							status: todo.status || 'pending',
+							activeForm: todo.activeForm || todo.content || ''
+						}));
+					}
+
 					if (msgType === 'tool_result' || role === 'tool_result') {
 						const toolUseId = m.toolId || m.tool_use_id;
 						if (toolUseId) {
@@ -1174,11 +1221,12 @@ function createTabsStore() {
 					}
 				}
 
-				console.log(`[Tab ${tabId}] Updating tab state - isStreaming:`, isStreaming, 'messageCount:', finalMessages.length);
+				console.log(`[Tab ${tabId}] Updating tab state - isStreaming:`, isStreaming, 'messageCount:', finalMessages.length, 'todoCount:', latestTodos.length);
 				updateTab(tabId, {
 					sessionId: data.session_id as string,
 					messages: finalMessages,
 					isStreaming: isStreaming,
+					todos: latestTodos,
 					error: null  // Clear any previous error
 				});
 
@@ -2195,7 +2243,8 @@ function createTabsStore() {
 						contextMax: 200000,
 						modelOverride: pt.modelOverride ?? null,
 						permissionModeOverride: pt.permissionModeOverride ?? null,
-			pendingPermissions: []
+						pendingPermissions: [],
+						todos: []
 					}));
 
 					update(s => ({
@@ -2266,7 +2315,8 @@ function createTabsStore() {
 				contextMax: 200000,
 				modelOverride: null,
 				permissionModeOverride: null,
-			pendingPermissions: []
+				pendingPermissions: [],
+				todos: []
 			};
 
 			update(s => ({

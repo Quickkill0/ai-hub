@@ -36,6 +36,7 @@
 	import SessionCard from '$lib/components/SessionCard.svelte';
 	import ConnectionStatus from '$lib/components/ConnectionStatus.svelte';
 	import PermissionQueue from '$lib/components/PermissionQueue.svelte';
+	import TodoList from '$lib/components/TodoList.svelte';
 	import { executeCommand, isSlashCommand, syncAfterRewind, listCommands, type Command } from '$lib/api/commands';
 	import { groupSessionsByDate, type DateGroup } from '$lib/utils/dateGroups';
 
@@ -2144,6 +2145,11 @@
 				{:else}
 					<!-- Messages -->
 					<div class="max-w-5xl mx-auto px-4 sm:px-8 py-4 space-y-4">
+						<!-- Todo List - Shows task progress when tasks exist -->
+						{#if currentTab.todos && currentTab.todos.length > 0}
+							<TodoList todos={currentTab.todos} />
+						{/if}
+
 						{#each currentTab.messages as message}
 							{#if message.role === 'user'}
 								<!-- User Message - Anvil Style -->
