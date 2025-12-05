@@ -349,6 +349,26 @@ class SyncEngine:
         )
         await self.broadcast_event(event, exclude_device_id=source_device_id)
 
+    async def broadcast_session_rewound(
+        self,
+        session_id: str,
+        target_uuid: str,
+        messages_removed: int,
+        source_device_id: Optional[str] = None
+    ):
+        """Broadcast that a session was rewound (messages removed)"""
+        event = SyncEvent(
+            event_type="session_rewound",
+            session_id=session_id,
+            data={
+                "target_uuid": target_uuid,
+                "messages_removed": messages_removed
+            },
+            source_device_id=source_device_id
+        )
+        # Don't exclude any device - all devices need to know about rewind
+        await self.broadcast_event(event, exclude_device_id=None)
+
     async def get_session_state(self, session_id: str) -> Dict[str, Any]:
         """Get current state of a session for new device joining"""
         state = {

@@ -565,12 +565,12 @@ function createTabsStore() {
 						})
 					}));
 				} else if (chunkType === 'tool_use') {
-					console.log(`[Tab ${tabId}] tool_use sync:`, {
-						tool_name: eventData.tool_name,
-						tool_id: eventData.tool_id,
-						tool_input: eventData.tool_input,
-						full_eventData: eventData
-					});
+					// Tool use event with full data - update existing or create new
+					const toolId = eventData.tool_id as string;
+					const toolName = eventData.tool_name as string;
+					const toolInput = eventData.tool_input as Record<string, unknown>;
+					console.log(`[Tab ${tabId}] tool_use sync:`, { toolName, toolId, toolInput });
+
 					update(s => ({
 						...s,
 						tabs: s.tabs.map(t => {
@@ -590,18 +590,32 @@ function createTabsStore() {
 								}
 							}
 
-							// Add tool use message
-							messages.push({
-								id: `tool-sync-${Date.now()}-${eventData.tool_id || ''}`,
-								role: 'assistant' as const,
-								content: '',
-								type: 'tool_use' as const,
-								toolName: eventData.tool_name as string,
-								toolId: eventData.tool_id as string,
-								toolInput: eventData.tool_input as Record<string, unknown>,
-								toolStatus: 'running' as const,
-								streaming: true
-							});
+							// Check if we already have a tool_use with this ID (from stream_block_start)
+							const existingIdx = messages.findIndex(
+								m => m.type === 'tool_use' && m.toolId === toolId
+							);
+
+							if (existingIdx !== -1) {
+								// Update existing tool message with full data
+								messages[existingIdx] = {
+									...messages[existingIdx],
+									toolName: toolName,
+									toolInput: toolInput
+								};
+							} else {
+								// Create new tool use message
+								messages.push({
+									id: `tool-sync-${Date.now()}-${toolId || ''}`,
+									role: 'assistant' as const,
+									content: '',
+									type: 'tool_use' as const,
+									toolName: toolName,
+									toolId: toolId,
+									toolInput: toolInput,
+									toolStatus: 'running' as const,
+									streaming: true
+								});
+							}
 
 							return { ...t, messages };
 						})
@@ -854,15 +868,26 @@ function createTabsStore() {
 					}));
 				} else if (chunkType === 'stream_block_start') {
 					// Start of a content block from another device
+					// Note: For tool_use, we may also receive a separate 'tool_use' event with full data.
+					// Only create a tool message if one doesn't already exist with this ID.
 					const blockType = eventData.block_type as string;
 					const contentBlock = eventData.content_block as { id?: string; name?: string };
 					console.log(`[Tab ${tabId}] stream_block_start sync:`, { blockType, contentBlock });
 
-					if (blockType === 'tool_use' && contentBlock) {
+					if (blockType === 'tool_use' && contentBlock?.id) {
 						update(s => ({
 							...s,
 							tabs: s.tabs.map(t => {
 								if (t.id !== tabId) return t;
+
+								// Check if we already have a tool_use with this ID (from tool_use event)
+								const existingTool = t.messages.find(
+									m => m.type === 'tool_use' && m.toolId === contentBlock.id
+								);
+								if (existingTool) {
+									// Already have this tool, don't duplicate
+									return t;
+								}
 
 								let messages = [...t.messages];
 								// Handle any existing streaming text message
@@ -942,6 +967,26 @@ function createTabsStore() {
 
 				// Refresh sessions list
 				loadSessionsInternal();
+				break;
+			}
+
+			case 'session_rewound': {
+				// Another device rewound the session - reload to get updated messages
+				const targetUuid = eventData.target_uuid as string;
+				const messagesRemoved = eventData.messages_removed as number;
+				console.log(`[Tab ${tabId}] Session rewound by another device:`, { targetUuid, messagesRemoved });
+
+				// Reload the session to get the updated message list
+				const tab = getTab(tabId);
+				if (tab?.sessionId) {
+					const ws = tabConnections.get(tabId);
+					if (ws && ws.readyState === WebSocket.OPEN) {
+						ws.send(JSON.stringify({
+							type: 'load_session',
+							session_id: tab.sessionId
+						}));
+					}
+				}
 				break;
 			}
 		}
