@@ -407,10 +407,18 @@
 			return;
 		}
 
+		// Append file references to the end of the message
+		const files = tabUploadedFiles[tabId] || [];
+		let finalPrompt = prompt;
+		if (files.length > 0) {
+			const fileRefs = files.map(f => `@${f.path}`).join(' ');
+			finalPrompt = prompt.trim() + '\n\n' + fileRefs;
+		}
+
 		tabInputs[tabId] = '';
 		tabInputs = tabInputs; // Trigger Svelte reactivity
 		tabUploadedFiles[tabId] = [];
-		tabs.sendMessage(tabId, prompt);
+		tabs.sendMessage(tabId, finalPrompt);
 	}
 
 	function handleKeyDown(e: KeyboardEvent, tabId: string) {
@@ -966,16 +974,7 @@
 				const result = await api.uploadFile(`/projects/${$activeTab.project}/upload`, file);
 				if (!tabUploadedFiles[tabId]) tabUploadedFiles[tabId] = [];
 				tabUploadedFiles[tabId] = [...tabUploadedFiles[tabId], result];
-
-				// Use @ format for file references
-				const fileRef = `@${result.path}`;
-				const currentPrompt = tabInputs[tabId] || '';
-				if (currentPrompt.trim()) {
-					tabInputs[tabId] = currentPrompt + ' ' + fileRef;
-				} else {
-					tabInputs[tabId] = fileRef;
-				}
-				tabInputs = tabInputs; // Trigger Svelte reactivity
+				// File references are shown as chips only, @FilePath appended when message is sent
 			}
 		} catch (error: any) {
 			console.error('Upload failed:', error);
@@ -988,18 +987,8 @@
 
 	function removeUploadedFile(tabId: string, index: number) {
 		const files = tabUploadedFiles[tabId] || [];
-		const file = files[index];
-		if (!file) return;
-
-		// Remove both @ format and legacy [File: path] format
-		const atRef = `@${file.path}`;
-		const legacyRef = `[File: ${file.path}]`;
-		let prompt = tabInputs[tabId] || '';
-		prompt = prompt.replace(atRef, '').replace(legacyRef, '');
-		// Clean up extra spaces and newlines
-		prompt = prompt.replace(/\s+/g, ' ').trim();
-		tabInputs[tabId] = prompt;
-		tabInputs = tabInputs; // Trigger Svelte reactivity
+		if (!files[index]) return;
+		// File references are shown as chips only, just remove from the array
 		tabUploadedFiles[tabId] = files.filter((_, i) => i !== index);
 	}
 
