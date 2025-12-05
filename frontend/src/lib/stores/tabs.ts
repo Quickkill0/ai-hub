@@ -114,6 +114,8 @@ interface TabsState {
 const tabConnections: Map<string, WebSocket> = new Map();
 const tabPingTimers: Map<string, ReturnType<typeof setInterval>> = new Map();
 const tabReconnectTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
+// Track tabs waiting for history response - queue sync events until history arrives
+const tabsWaitingForHistory: Map<string, Array<Record<string, unknown>>> = new Map();
 
 // Interface for persisted tab state (only what we need to restore tabs)
 interface PersistedTab {
@@ -338,6 +340,11 @@ function createTabsStore() {
 			const tab = getTab(tabId);
 			if (tab?.sessionId) {
 				console.log(`[Tab ${tabId}] Registering with session via load_session:`, tab.sessionId);
+
+				// Mark tab as waiting for history - queue sync events until history arrives
+				// This prevents race conditions where sync events arrive before history
+				tabsWaitingForHistory.set(tabId, []);
+
 				// Use the WebSocket to register with SyncEngine and get latest messages
 				// The backend will return isStreaming=true with buffer if still active,
 				// or isStreaming=false with complete history if finished
@@ -417,6 +424,9 @@ function createTabsStore() {
 			tabPingTimers.delete(tabId);
 		}
 
+		// Clear any waiting for history state
+		tabsWaitingForHistory.delete(tabId);
+
 		const ws = tabConnections.get(tabId);
 		if (ws) {
 			ws.close(1000);
@@ -437,6 +447,15 @@ function createTabsStore() {
 		// Only process events for tabs that have this session loaded
 		const tab = getTab(tabId);
 		if (!tab || tab.sessionId !== sessionId) {
+			return;
+		}
+
+		// If tab is waiting for history, queue the event to process after history loads
+		// This prevents race conditions where sync events arrive before history
+		const queuedEvents = tabsWaitingForHistory.get(tabId);
+		if (queuedEvents !== undefined) {
+			console.log(`[Tab ${tabId}] Queueing sync event (waiting for history):`, eventType);
+			queuedEvents.push(data);
 			return;
 		}
 
@@ -968,7 +987,32 @@ function createTabsStore() {
 		switch (msgType) {
 			case 'history': {
 				// Handle both JSONL format (with explicit type) and legacy DB format
-				const messages = (data.messages as Array<Record<string, unknown>>)?.map((m, i) => {
+				const rawMessages = (data.messages as Array<Record<string, unknown>>) || [];
+
+				// First pass: convert raw messages to ChatMessage format
+				// Also build a map of tool_results by tool_use_id for grouping
+				const toolResultMap: Map<string, { content: string; toolStatus: 'complete' | 'error' }> = new Map();
+
+				// Pre-scan for tool_results to group them with tool_use
+				for (const m of rawMessages) {
+					const msgType = m.type as MessageType | undefined;
+					const role = m.role as string;
+					if (msgType === 'tool_result' || role === 'tool_result') {
+						const toolUseId = m.toolId || m.tool_use_id;
+						if (toolUseId) {
+							toolResultMap.set(toolUseId as string, {
+								content: m.content as string || '',
+								toolStatus: 'complete'
+							});
+						}
+					}
+				}
+
+				const messages: ChatMessage[] = [];
+				const seenToolResults = new Set<string>(); // Track which tool_results we've merged
+
+				for (let i = 0; i < rawMessages.length; i++) {
+					const m = rawMessages[i];
 					// Determine message type - JSONL messages have explicit 'type' field
 					let msgType: MessageType | undefined = m.type as MessageType | undefined;
 
@@ -981,7 +1025,7 @@ function createTabsStore() {
 
 					// Handle system messages (e.g., /context, /compact output)
 					if (msgType === 'system' || m.role === 'system') {
-						return {
+						messages.push({
 							id: String(m.id || `msg-${i}`),
 							role: 'system' as const,
 							content: m.content as string,
@@ -990,7 +1034,18 @@ function createTabsStore() {
 							systemData: { content: m.content } as Record<string, unknown>,
 							metadata: m.metadata as Record<string, unknown>,
 							streaming: false
-						};
+						});
+						continue;
+					}
+
+					// Skip standalone tool_result messages - they should be grouped with tool_use
+					if (msgType === 'tool_result') {
+						const toolUseId = m.toolId || m.tool_use_id;
+						if (toolUseId) {
+							seenToolResults.add(toolUseId as string);
+						}
+						// Skip - will be merged into tool_use message
+						continue;
 					}
 
 					// Build the chat message with all fields
@@ -1008,6 +1063,20 @@ function createTabsStore() {
 						streaming: false
 					};
 
+					// For tool_use messages, try to merge the corresponding tool_result
+					if (msgType === 'tool_use' && chatMessage.toolId) {
+						const result = toolResultMap.get(chatMessage.toolId);
+						if (result && !chatMessage.toolResult) {
+							chatMessage.toolResult = result.content;
+							chatMessage.toolStatus = result.toolStatus;
+							seenToolResults.add(chatMessage.toolId);
+						}
+						// If no result yet, mark as complete anyway (history = finished operations)
+						if (!chatMessage.toolStatus) {
+							chatMessage.toolStatus = 'complete';
+						}
+					}
+
 					// Add subagent-specific fields if present
 					if (msgType === 'subagent') {
 						chatMessage.agentId = m.agentId as string | undefined;
@@ -1017,29 +1086,53 @@ function createTabsStore() {
 						chatMessage.agentChildren = m.agentChildren as SubagentChildMessage[] | undefined;
 					}
 
-					return chatMessage;
-				}) || [];
+					messages.push(chatMessage);
+				}
 
 				// Handle streaming state from backend
 				const isStreaming = data.isStreaming as boolean || false;
 				const streamingBuffer = data.streamingBuffer as Array<Record<string, unknown>> | undefined;
 				console.log(`[Tab ${tabId}] History response - isStreaming:`, isStreaming, 'bufferLen:', streamingBuffer?.length || 0);
 
-				// If session is actively streaming and has buffered content, merge it
+				// If session is actively streaming and has buffered content, merge it intelligently
 				let finalMessages = messages;
 				if (isStreaming && streamingBuffer && streamingBuffer.length > 0) {
 					console.log(`[Tab ${tabId}] Late-joining streaming session, merging buffer:`, streamingBuffer.length, 'messages');
-					const bufferMessages: ChatMessage[] = streamingBuffer.map((m) => ({
-						id: `buffer-${Date.now()}-${Math.random()}`,
-						role: 'assistant' as const,
-						content: (m.content as string) || '',
-						type: (m.type || m.chunk_type) as MessageType,
-						toolName: m.tool_name as string | undefined,
-						toolId: m.tool_id as string | undefined,
-						toolInput: m.tool_input as Record<string, unknown> | undefined,
-						streaming: (m.streaming as boolean) ?? true
-					}));
-					finalMessages = [...messages, ...bufferMessages];
+
+					// Create a set of existing message content hashes for deduplication
+					const existingContentHashes = new Set<string>();
+					for (const msg of messages) {
+						// Create a simple hash based on content and type
+						const hash = `${msg.type || 'text'}:${msg.toolId || ''}:${(msg.content || '').substring(0, 100)}`;
+						existingContentHashes.add(hash);
+					}
+
+					// Process buffer messages and only add non-duplicates
+					for (const m of streamingBuffer) {
+						const bufferType = (m.type || m.chunk_type || 'text') as MessageType;
+						const bufferToolId = (m.tool_id || '') as string;
+						const bufferContent = (m.content || '') as string;
+						const hash = `${bufferType}:${bufferToolId}:${bufferContent.substring(0, 100)}`;
+
+						// Skip if we already have similar content in history
+						if (existingContentHashes.has(hash)) {
+							console.log(`[Tab ${tabId}] Skipping duplicate buffer message:`, hash.substring(0, 50));
+							continue;
+						}
+
+						const bufferMsg: ChatMessage = {
+							id: `buffer-${Date.now()}-${Math.random()}`,
+							role: 'assistant' as const,
+							content: bufferContent,
+							type: bufferType,
+							toolName: m.tool_name as string | undefined,
+							toolId: bufferToolId || undefined,
+							toolInput: m.tool_input as Record<string, unknown> | undefined,
+							streaming: (m.streaming as boolean) ?? true
+						};
+						finalMessages.push(bufferMsg);
+						existingContentHashes.add(hash);
+					}
 				}
 
 				console.log(`[Tab ${tabId}] Updating tab state - isStreaming:`, isStreaming, 'messageCount:', finalMessages.length);
@@ -1054,6 +1147,21 @@ function createTabsStore() {
 				if (finalMessages.length > 0 && finalMessages[0].role === 'user') {
 					const title = finalMessages[0].content.substring(0, 30) + (finalMessages[0].content.length > 30 ? '...' : '');
 					updateTab(tabId, { title });
+				}
+
+				// Process any queued sync events that arrived while waiting for history
+				const queuedEvents = tabsWaitingForHistory.get(tabId);
+				if (queuedEvents && queuedEvents.length > 0) {
+					console.log(`[Tab ${tabId}] Processing ${queuedEvents.length} queued sync events`);
+					// Remove from waiting map first to prevent re-queueing
+					tabsWaitingForHistory.delete(tabId);
+					// Process each queued event
+					for (const queuedData of queuedEvents) {
+						handleSyncEvent(tabId, queuedData);
+					}
+				} else {
+					// No queued events, just clear the waiting state
+					tabsWaitingForHistory.delete(tabId);
 				}
 				break;
 			}
