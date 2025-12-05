@@ -565,7 +565,8 @@ function createTabsStore() {
 						})
 					}));
 				} else if (chunkType === 'tool_use') {
-					// Tool use event with full data - update existing or create new
+					// Tool use event - this is the ONLY place we create tool messages for sync
+					// (stream_block_start is ignored for tool_use to avoid duplicates)
 					const toolId = eventData.tool_id as string;
 					const toolName = eventData.tool_name as string;
 					const toolInput = eventData.tool_input as Record<string, unknown>;
@@ -578,7 +579,7 @@ function createTabsStore() {
 
 							let messages = [...t.messages];
 
-							// Handle current streaming text message
+							// Handle current streaming text message - finalize it
 							const streamingIdx = messages.findLastIndex(
 								m => m.type === 'text' && m.role === 'assistant' && m.streaming
 							);
@@ -590,32 +591,18 @@ function createTabsStore() {
 								}
 							}
 
-							// Check if we already have a tool_use with this ID (from stream_block_start)
-							const existingIdx = messages.findIndex(
-								m => m.type === 'tool_use' && m.toolId === toolId
-							);
-
-							if (existingIdx !== -1) {
-								// Update existing tool message with full data
-								messages[existingIdx] = {
-									...messages[existingIdx],
-									toolName: toolName,
-									toolInput: toolInput
-								};
-							} else {
-								// Create new tool use message
-								messages.push({
-									id: `tool-sync-${Date.now()}-${toolId || ''}`,
-									role: 'assistant' as const,
-									content: '',
-									type: 'tool_use' as const,
-									toolName: toolName,
-									toolId: toolId,
-									toolInput: toolInput,
-									toolStatus: 'running' as const,
-									streaming: true
-								});
-							}
+							// Create the tool use message
+							messages.push({
+								id: `tool-sync-${Date.now()}-${toolId || ''}`,
+								role: 'assistant' as const,
+								content: '',
+								type: 'tool_use' as const,
+								toolName: toolName,
+								toolId: toolId,
+								toolInput: toolInput,
+								toolStatus: 'running' as const,
+								streaming: true
+							});
 
 							return { ...t, messages };
 						})
@@ -868,57 +855,13 @@ function createTabsStore() {
 					}));
 				} else if (chunkType === 'stream_block_start') {
 					// Start of a content block from another device
-					// Note: For tool_use, we may also receive a separate 'tool_use' event with full data.
-					// Only create a tool message if one doesn't already exist with this ID.
+					// For tool_use blocks, we DO NOT create messages here - we let the 'tool_use' event
+					// create the message to avoid race conditions and duplicates.
+					// The 'tool_use' event has the full data (name, id, input) anyway.
 					const blockType = eventData.block_type as string;
 					const contentBlock = eventData.content_block as { id?: string; name?: string };
-					console.log(`[Tab ${tabId}] stream_block_start sync:`, { blockType, contentBlock });
-
-					if (blockType === 'tool_use' && contentBlock?.id) {
-						update(s => ({
-							...s,
-							tabs: s.tabs.map(t => {
-								if (t.id !== tabId) return t;
-
-								// Check if we already have a tool_use with this ID (from tool_use event)
-								const existingTool = t.messages.find(
-									m => m.type === 'tool_use' && m.toolId === contentBlock.id
-								);
-								if (existingTool) {
-									// Already have this tool, don't duplicate
-									return t;
-								}
-
-								let messages = [...t.messages];
-								// Handle any existing streaming text message
-								const streamingIdx = messages.findLastIndex(
-									m => m.type === 'text' && m.role === 'assistant' && m.streaming
-								);
-								if (streamingIdx !== -1) {
-									if (messages[streamingIdx].content) {
-										messages[streamingIdx] = { ...messages[streamingIdx], streaming: false };
-									} else {
-										messages = messages.filter((_, i) => i !== streamingIdx);
-									}
-								}
-
-								// Add tool use message
-								messages.push({
-									id: `tool-sync-${Date.now()}-${contentBlock.id || ''}`,
-									role: 'assistant' as const,
-									content: '',
-									type: 'tool_use' as const,
-									toolName: contentBlock.name || '',
-									toolId: contentBlock.id || '',
-									toolInput: {},
-									toolStatus: 'running' as const,
-									streaming: true
-								});
-
-								return { ...t, messages };
-							})
-						}));
-					}
+					console.log(`[Tab ${tabId}] stream_block_start sync (ignored for tool_use):`, { blockType, contentBlock });
+					// No action needed - tool_use event will create the message
 				} else if (chunkType === 'stream_block_stop') {
 					// End of a content block - just log for now
 					console.log(`[Tab ${tabId}] stream_block_stop sync:`, { index: eventData.index });
