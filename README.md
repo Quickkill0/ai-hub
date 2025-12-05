@@ -254,7 +254,7 @@ ai-hub/
 3. Configure `PUID=99`, `PGID=100`
 4. Map port `8000`
 5. Add volumes for persistence
-6. Run `docker exec -it ai-hub claude login` after starting
+6. Login on settings page after starting
 
 ## Troubleshooting
 
