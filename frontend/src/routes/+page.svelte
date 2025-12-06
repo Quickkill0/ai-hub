@@ -2745,6 +2745,7 @@
 								<label class="block text-xs text-muted-foreground mb-1">Permission Mode</label>
 								<select bind:value={profileForm.permission_mode} class="w-full bg-muted border border-border rounded-lg px-3 py-2 text-sm text-foreground">
 									<option value="default">Default</option>
+									<option value="acceptEdits">Accept Edits</option>
 									<option value="plan">Plan</option>
 									<option value="bypassPermissions">Bypass</option>
 								</select>
