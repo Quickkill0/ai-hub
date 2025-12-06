@@ -16,8 +16,6 @@ This application can use Claude Code CLI with OAuth authentication, which is gov
 
 2. **No Production Deployment**: Do NOT deploy this application as a production service, commercial product, or multi-user platform using OAuth authentication. This would violate Anthropic's Terms of Service.
 
-3. **For Production Use**: If you want to build a production application, you MUST use this with proper API keys under Anthropic's [Commercial Terms](https://www.anthropic.com/legal/commercial-terms).
-
 ---
 
 ## ⚠️ Experimental Software Notice
