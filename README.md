@@ -20,7 +20,7 @@ This application can use Claude Code CLI with OAuth authentication, which is gov
 
 ---
 
-## Experimental Software Notice
+## ⚠️ Experimental Software Notice
 
 **This application is highly experimental and under active development.**
 
