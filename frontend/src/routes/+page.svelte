@@ -2252,8 +2252,12 @@
 							{:else if message.type === 'tool_use' && message.toolName === 'TodoWrite'}
 								<!-- TodoWrite - Render as TodoList component -->
 								{#if message.toolInput?.todos && Array.isArray(message.toolInput.todos)}
-									<div class="w-full">
-										<TodoList todos={message.toolInput.todos} />
+									<div class="flex gap-3 w-full">
+										<!-- Empty spacer to align with message content -->
+										<div class="flex-shrink-0 w-8"></div>
+										<div class="flex-1 min-w-0">
+											<TodoList todos={message.toolInput.todos} />
+										</div>
 									</div>
 								{/if}
 							{:else if message.type === 'tool_use'}
