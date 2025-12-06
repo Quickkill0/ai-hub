@@ -28,6 +28,28 @@ This application can use Claude Code CLI with OAuth authentication, which is gov
 
 ---
 
+## Screenshots
+
+<p align="center">
+  <img src="docs/images/chat-desktop.png" alt="Chat Interface - Desktop" width="800"/>
+</p>
+<p align="center"><em>Main chat interface with tool use visualization and todo tracking</em></p>
+
+<p align="center">
+  <img src="docs/images/sessions-sidebar.png" alt="Sessions Sidebar" width="800"/>
+</p>
+<p align="center"><em>Sessions sidebar with chat history and cost tracking</em></p>
+
+<p align="center">
+  <img src="docs/images/chat-mobile.png" alt="Chat Interface - Mobile" width="400"/>
+</p>
+<p align="center"><em>Responsive mobile view</em></p>
+
+<p align="center">
+  <img src="docs/images/profile-modal.png" alt="Profile Configuration" width="400"/>
+</p>
+<p align="center"><em>Profile configuration with model selection and tool settings</em></p>
+
 ## Overview
 
 AI Hub lets you self-host a Claude Code web interface and access Claude's capabilities without the cost of API keys. It acts as a bridge between Claude Code CLI (using OAuth authentication) and your applications, exposing Claude through:
