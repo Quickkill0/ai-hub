@@ -52,14 +52,14 @@ This application can use Claude Code CLI with OAuth authentication, which is gov
 
 ## Overview
 
-AI Hub lets you self-host a Claude Code web interface and access Claude's capabilities without the cost of API keys. It acts as a bridge between Claude Code CLI (using OAuth authentication) and your applications, exposing Claude through:
+AI Hub lets you self-host a Claude Code web interface and access Claude's capabilities without the cost of API keys. It acts as a bridge between Claude Code CLI and your applications, exposing Claude through:
 
 - **Web UI** - Modern chat interface similar to Claude.ai
 - **REST API** - OpenAI-compatible endpoints for programmatic access
 - **WebSocket** - Real-time streaming and multi-device sync
 - **Agent Profiles** - Customizable tool sets and system prompts
 
-No API keys required (Can be used though **requires login from cli inside container**) - uses Claude Code's OAuth authentication.
+No API keys required (Can be used though *requires login from cli inside container*) - uses Claude Code's OAuth authentication.
 
 ## Features
 
