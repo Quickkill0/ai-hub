@@ -2428,7 +2428,7 @@
 			<div class="border-t border-border/50 bg-background/80 backdrop-blur-sm p-3 sm:p-4">
 				<div class="max-w-5xl mx-auto">
 					<!-- Hidden file input -->
-					<input type="file" bind:this={fileInput} on:change={handleFileUpload} class="hidden" multiple />
+					<input type="file" bind:this={fileInput} on:change={handleFileUpload} class="hidden" multiple accept="*/*" />
 
 					<!-- Cursor-Style Unified Input Container -->
 					<form on:submit|preventDefault={() => handleSubmit(tabId)} class="relative">
